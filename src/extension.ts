@@ -71,7 +71,7 @@ import { ArduinoComponentInstaller } from "./espIdf/arduino/addArduinoComponent"
 import { PartitionTableEditorPanel } from "./espIdf/partition-table";
 import { ESPEFuseTreeDataProvider } from "./efuse/view";
 import { ESPEFuseManager } from "./efuse";
-import { constants, createFileSync, pathExists, readJson } from "fs-extra";
+import { constants, createFileSync, pathExists } from "fs-extra";
 import { getEspAdf } from "./espAdf/espAdfDownload";
 import { getEspMdf } from "./espMdf/espMdfDownload";
 import { SetupPanel } from "./setup/SetupPanel";
@@ -98,7 +98,6 @@ import {
 import { generateConfigurationReport } from "./support";
 import { initializeReportObject } from "./support/initReportObj";
 import { writeTextReport } from "./support/writeReport";
-import { kill } from "process";
 import { getNewProjectArgs } from "./newProject/newProjectInit";
 import { NewProjectPanel } from "./newProject/newProjectPanel";
 import { buildCommand } from "./build/buildCmd";
@@ -111,7 +110,7 @@ import { configureProjectWithGcov } from "./coverage/configureProject";
 import { ComponentManagerUIPanel } from "./component-manager/panel";
 import { verifyAppBinary } from "./espIdf/debugAdapter/verifyApp";
 import { mergeFlashBinaries } from "./qemu/mergeFlashBin";
-import { IQemuOptions, QemuManager } from "./qemu/qemuManager";
+import { QemuLaunchMode, QemuManager } from "./qemu/qemuManager";
 import {
   PartitionItem,
   PartitionTreeDataProvider,
@@ -152,6 +151,16 @@ import { IdfReconfigureTask } from "./espIdf/reconfigure/task";
 import { ErrorHintProvider, HintHoverProvider } from "./espIdf/hints/index";
 import { installWebsocketClient } from "./espIdf/monitor/checkWebsocketClient";
 import { TroubleshootingPanel } from "./support/troubleshootPanel";
+import {
+  createCmdsStatusBarItems,
+  createStatusBarItem,
+  statusBarItems,
+} from "./statusBar";
+import {
+  CommandKeys,
+  createCommandDictionary,
+  IDFWebCommandKeys,
+} from "./cmdTreeView/cmdStore";
 
 // Global variables shared by commands
 let workspaceRoot: vscode.Uri;
@@ -159,15 +168,14 @@ const DEBUG_DEFAULT_PORT = 43474;
 let covRenderer: CoverageRenderer;
 
 // OpenOCD  and Debug Adapter Manager
-let statusBarItems: { [key: string]: vscode.StatusBarItem };
 
-const openOCDManager = OpenOCDManager.init();
+let openOCDManager: OpenOCDManager;
 let isOpenOCDLaunchedByDebug: boolean = false;
 let isDebugRestarted: boolean = false;
 let debugAdapterManager: DebugAdapterManager;
 
 // QEMU
-const qemuManager = QemuManager.init();
+let qemuManager: QemuManager;
 
 // ESP-IDF Docs search results Tree view
 let espIdfDocsResultTreeDataProvider: DocSearchResultTreeDataProvider;
@@ -204,7 +212,7 @@ let wsServer: WSServer;
 
 const openFolderFirstMsg = vscode.l10n.t("Open a folder first.");
 const cmdNotForWebIdeMsg = vscode.l10n.t(
-  "Selected command is not available in WebIDE"
+  "Selected command is not available in Web"
 );
 const openFolderCheck = [
   PreCheck.isWorkspaceFolderOpen,
@@ -261,13 +269,12 @@ export async function activate(context: vscode.ExtensionContext) {
   ESP.GlobalConfiguration.store = ExtensionConfigStore.init(context);
   ESP.ProjectConfiguration.store = ProjectConfigStore.init(context);
 
-  // Create a status bar item with current workspace
-
-  // Status Bar Item with common commands
-  statusBarItems = await createCmdsStatusBarItems();
-
   // Create Kconfig Language Server Client
   KconfigLangClient.startKconfigLangServer(context);
+
+  openOCDManager = OpenOCDManager.init();
+  qemuManager = QemuManager.init();
+  const commandDictionary = createCommandDictionary();
 
   // Register Tree Provider for IDF Explorer
   registerTreeProvidersForIDFExplorer(context);
@@ -303,11 +310,13 @@ export async function activate(context: vscode.ExtensionContext) {
   registerQemuStatusBarItem(context);
 
   if (PreCheck.isWorkspaceFolderOpen()) {
+    await createCmdsStatusBarItems(vscode.workspace.workspaceFolders[0].uri);
     workspaceRoot = initSelectedWorkspace(statusBarItems["workspace"]);
     await getIdfTargetFromSdkconfig(workspaceRoot, statusBarItems["target"]);
     if (statusBarItems && statusBarItems["port"]) {
       statusBarItems["port"].text =
-        "$(plug) " + idfConf.readParameter("idf.port", workspaceRoot);
+        `$(${commandDictionary[CommandKeys.SelectSerialPort].iconId}) ` +
+        idfConf.readParameter("idf.port", workspaceRoot);
     }
     const coverageOptions = getCoverageOptions(workspaceRoot);
     covRenderer = new CoverageRenderer(workspaceRoot, coverageOptions);
@@ -351,8 +360,37 @@ export async function activate(context: vscode.ExtensionContext) {
     } else {
       UpdateCmakeLists.updateSrcsInCmakeLists(e.fsPath, srcOp.other);
     }
+    await binTimestampEventFunc(e);
   });
   context.subscriptions.push(srcWatchOnChangeDisposable);
+
+  const buildWatcher = vscode.workspace.createFileSystemWatcher(
+    "**/.bin_timestamp",
+    false,
+    false,
+    true
+  );
+
+  const binTimestampEventFunc = async (e: vscode.Uri) => {
+    const buildDirPath = idfConf.readParameter(
+      "idf.buildPath",
+      workspaceRoot
+    ) as string;
+    const qemuBinPath = path.join(buildDirPath, "merged_qemu.bin");
+    const qemuBinExists = await pathExists(qemuBinPath);
+    if (qemuBinExists) {
+      await vscode.workspace.fs.delete(vscode.Uri.file(qemuBinPath));
+    }
+  };
+
+  const buildWatcherDisposable = buildWatcher.onDidChange(
+    binTimestampEventFunc
+  );
+  context.subscriptions.push(buildWatcherDisposable);
+  const buildWatcherCreateDisposable = buildWatcher.onDidCreate(
+    binTimestampEventFunc
+  );
+  context.subscriptions.push(buildWatcherCreateDisposable);
 
   vscode.workspace.onDidChangeWorkspaceFolders(async (e) => {
     if (PreCheck.isWorkspaceFolderOpen()) {
@@ -365,7 +403,32 @@ export async function activate(context: vscode.ExtensionContext) {
           );
           if (statusBarItems && statusBarItems["port"]) {
             statusBarItems["port"].text =
-              "$(plug) " + idfConf.readParameter("idf.port", workspaceRoot);
+              `$(${commandDictionary[CommandKeys.SelectSerialPort].iconId}) ` +
+              idfConf.readParameter("idf.port", workspaceRoot);
+          }
+          if (statusBarItems["projectConf"]) {
+            statusBarItems["projectConf"].dispose();
+            statusBarItems["projectConf"] = undefined;
+            const selectedConfig = ESP.ProjectConfiguration.store.get<string>(
+              ESP.ProjectConfiguration.SELECTED_CONFIG
+            );
+            ESP.ProjectConfiguration.store.clear(selectedConfig);
+            ESP.ProjectConfiguration.store.clear(
+              ESP.ProjectConfiguration.SELECTED_CONFIG
+            );
+          }
+          const currentIdfSetup = await getCurrentIdfSetup(
+            workspaceRoot,
+            false
+          );
+          if (statusBarItems["currentIdfVersion"]) {
+            statusBarItems["currentIdfVersion"].text = currentIdfSetup.isValid
+              ? `$(${
+                  commandDictionary[CommandKeys.SelectCurrentIdfVersion].iconId
+                }) ESP-IDF v${currentIdfSetup.version}`
+              : `$(${
+                  commandDictionary[CommandKeys.SelectCurrentIdfVersion].iconId
+                }) ESP-IDF InvalidSetup`;
           }
           const coverageOptions = getCoverageOptions(workspaceRoot);
           covRenderer = new CoverageRenderer(workspaceRoot, coverageOptions);
@@ -396,9 +459,6 @@ export async function activate(context: vscode.ExtensionContext) {
         workspace: workspaceRoot,
       } as IOpenOCDConfig;
       openOCDManager.configureServer(openOCDConfig);
-      qemuManager.configure({
-        workspaceFolder: workspaceRoot,
-      } as IQemuOptions);
     }
     ConfserverProcess.dispose();
   });
@@ -545,7 +605,7 @@ export async function activate(context: vscode.ExtensionContext) {
           }
         );
       } catch (error) {
-        Logger.errorNotify(error.message, error);
+        Logger.errorNotify(error.message, error, "extension createFiles");
       }
     });
   });
@@ -611,7 +671,7 @@ export async function activate(context: vscode.ExtensionContext) {
         Logger.infoNotify(vscode.l10n.t("Build directory has been deleted."));
       } catch (error) {
         OutputChannel.appendLineAndShow(error.message);
-        Logger.errorNotify(error.message, error);
+        Logger.errorNotify(error.message, error, "extension fullClean");
       }
     });
   });
@@ -673,7 +733,7 @@ export async function activate(context: vscode.ExtensionContext) {
             OutputChannel.appendLine(result);
             Logger.infoNotify("Flash memory content has been erased.");
           } catch (error) {
-            Logger.errorNotify(error.message, error);
+            Logger.errorNotify(error.message, error, "extension eraseFlash");
           }
         }
       );
@@ -737,7 +797,11 @@ export async function activate(context: vscode.ExtensionContext) {
             }
             await arduinoComponentManager.addArduinoAsComponent();
           } catch (error) {
-            Logger.errorNotify(error.message, error);
+            Logger.errorNotify(
+              error.message,
+              error,
+              "extension addArduinoAsComponentToCurFolder"
+            );
           }
         }
       );
@@ -811,7 +875,7 @@ export async function activate(context: vscode.ExtensionContext) {
   });
 
   registerIDFCommand("espIdf.selectCurrentIdfVersion", () => {
-    PreCheck.perform([webIdeCheck, openFolderCheck], async () => {
+    PreCheck.perform([openFolderCheck], async () => {
       const currentIdfSetup = await selectIdfSetup(
         workspaceRoot,
         statusBarItems["currentIdfVersion"]
@@ -852,7 +916,7 @@ export async function activate(context: vscode.ExtensionContext) {
             error && error.message
               ? error.message
               : "Error trying to reconfigure the ESP-IDF project";
-          Logger.errorNotify(errMsg, error);
+          Logger.errorNotify(errMsg, error, "extension idfReconfigureTask");
         }
       }
     );
@@ -866,7 +930,7 @@ export async function activate(context: vscode.ExtensionContext) {
     } catch (error) {
       const errMsg =
         error && error.message ? error.message : "Error at custom task";
-      Logger.errorNotify(errMsg, error);
+      Logger.errorNotify(errMsg, error, "extension customTask");
     }
   });
 
@@ -891,7 +955,8 @@ export async function activate(context: vscode.ExtensionContext) {
         );
         if (statusBarItems && statusBarItems["port"]) {
           statusBarItems["port"].text =
-            "$(plug) " + idfConf.readParameter("idf.port", workspaceRoot);
+            `$(${commandDictionary[CommandKeys.SelectSerialPort].iconId}) ` +
+            idfConf.readParameter("idf.port", workspaceRoot);
         }
         updateIdfComponentsTree(workspaceRoot);
         const workspaceFolderInfo = {
@@ -900,6 +965,27 @@ export async function activate(context: vscode.ExtensionContext) {
           tooltip: option.uri.fsPath,
         };
         utils.updateStatus(statusBarItems["workspace"], workspaceFolderInfo);
+        if (statusBarItems["projectConf"]) {
+          statusBarItems["projectConf"].dispose();
+          statusBarItems["projectConf"] = undefined;
+          const selectedConfig = ESP.ProjectConfiguration.store.get<string>(
+            ESP.ProjectConfiguration.SELECTED_CONFIG
+          );
+          ESP.ProjectConfiguration.store.clear(selectedConfig);
+          ESP.ProjectConfiguration.store.clear(
+            ESP.ProjectConfiguration.SELECTED_CONFIG
+          );
+        }
+        const currentIdfSetup = await getCurrentIdfSetup(workspaceRoot, false);
+        if (statusBarItems["currentIdfVersion"]) {
+          statusBarItems["currentIdfVersion"].text = currentIdfSetup.isValid
+            ? `$(${
+                commandDictionary[CommandKeys.SelectCurrentIdfVersion].iconId
+              }) ESP-IDF v${currentIdfSetup.version}`
+            : `$(${
+                commandDictionary[CommandKeys.SelectCurrentIdfVersion].iconId
+              }) ESP-IDF InvalidSetup`;
+        }
         const debugAdapterConfig = {
           currentWorkspace: workspaceRoot,
         } as IDebugAdapterConfig;
@@ -908,14 +994,15 @@ export async function activate(context: vscode.ExtensionContext) {
           workspace: workspaceRoot,
         } as IOpenOCDConfig;
         openOCDManager.configureServer(openOCDConfig);
-        qemuManager.configure({
-          workspaceFolder: workspaceRoot,
-        } as IQemuOptions);
         ConfserverProcess.dispose();
         const coverageOptions = getCoverageOptions(workspaceRoot);
         covRenderer = new CoverageRenderer(workspaceRoot, coverageOptions);
       } catch (error) {
-        Logger.errorNotify(error.message, error);
+        Logger.errorNotify(
+          error.message,
+          error,
+          "extension pickAWorkspaceFolder"
+        );
       }
     });
   });
@@ -1021,12 +1108,20 @@ export async function activate(context: vscode.ExtensionContext) {
                 workspaceRoot
               );
             } catch (error) {
-              Logger.errorNotify(error.message, error);
+              Logger.errorNotify(
+                error.message,
+                error,
+                "extension projectConfigurationEditor"
+              );
             }
           }
         );
       } catch (error) {
-        Logger.errorNotify(error.message, error);
+        Logger.errorNotify(
+          error.message,
+          error,
+          "extension projectConfigurationEditor"
+        );
       }
     });
   });
@@ -1074,12 +1169,17 @@ export async function activate(context: vscode.ExtensionContext) {
         statusBarItems["projectConf"].dispose();
       }
       statusBarItems["projectConf"] = createStatusBarItem(
-        "$(gear)" + option.target,
-        vscode.l10n.t("ESP-IDF: Select Project Configuration"),
-        "espIdf.projectConf",
-        100
+        `$(${
+          commandDictionary[CommandKeys.SelectProjectConfiguration].iconId
+        }) ${option.target}`,
+        commandDictionary[CommandKeys.SelectProjectConfiguration].tooltip,
+        CommandKeys.SelectProjectConfiguration,
+        99,
+        commandDictionary[CommandKeys.SelectProjectConfiguration].checkboxState
       );
       await getIdfTargetFromSdkconfig(workspaceRoot, statusBarItems["target"]);
+      await utils.setCCppPropertiesJsonCompileCommands(workspaceRoot);
+      ConfserverProcess.dispose();
     });
   });
 
@@ -1091,7 +1191,7 @@ export async function activate(context: vscode.ExtensionContext) {
         workspaceRoot
       ) as boolean;
       if (enableStatusBar) {
-        statusBarItems = await createCmdsStatusBarItems();
+        await createCmdsStatusBarItems(workspaceRoot);
       } else if (!enableStatusBar) {
         for (let statusItem in statusBarItems) {
           statusBarItems[statusItem].dispose();
@@ -1100,14 +1200,11 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     } else if (e.affectsConfiguration("idf.espIdfPath" + winFlag)) {
       ESP.URL.Docs.IDF_INDEX = undefined;
-    } else if (e.affectsConfiguration("idf.qemuTcpPort")) {
-      qemuManager.configure({
-        tcpPort: idfConf.readParameter("idf.qemuTcpPort", workspaceRoot),
-      } as IQemuOptions);
     } else if (e.affectsConfiguration("idf.port" + winFlag)) {
       if (statusBarItems && statusBarItems["port"]) {
         statusBarItems["port"].text =
-          "$(plug) " + idfConf.readParameter("idf.port", workspaceRoot);
+          `$(${commandDictionary[CommandKeys.SelectSerialPort].iconId}) ` +
+          idfConf.readParameter("idf.port", workspaceRoot);
       }
     } else if (e.affectsConfiguration("idf.flashType")) {
       let flashType = idfConf.readParameter(
@@ -1115,7 +1212,9 @@ export async function activate(context: vscode.ExtensionContext) {
         workspaceRoot
       ) as string;
       if (statusBarItems && statusBarItems["flashType"]) {
-        statusBarItems["flashType"].text = `$(star-empty) ${flashType}`;
+        statusBarItems["flashType"].text = `$(${
+          commandDictionary[CommandKeys.SelectFlashType].iconId
+        }) ${flashType}`;
       }
     } else if (e.affectsConfiguration("idf.buildPath")) {
       updateIdfComponentsTree(workspaceRoot);
@@ -1200,7 +1299,11 @@ export async function activate(context: vscode.ExtensionContext) {
           error && error.message
             ? error.message
             : "Error starting ESP-IDF Debug Adapter";
-        return Logger.errorNotify(errMsg, error);
+        return Logger.errorNotify(
+          errMsg,
+          error,
+          "extension createDebugAdapterDescriptor espidf"
+        );
       }
     },
   });
@@ -1269,7 +1372,8 @@ export async function activate(context: vscode.ExtensionContext) {
         const msg = e && e.message ? e.message : e;
         Logger.errorNotify(
           "Error building gcov data from gcda files.\nCheck the ESP-IDF output for more details.",
-          e
+          e,
+          "extension genCoverage"
         );
         OutputChannel.appendLine(
           msg +
@@ -1341,7 +1445,7 @@ export async function activate(context: vscode.ExtensionContext) {
           );
         } catch (error) {
           const errMsg = error.message || "Error searching in ESP-IDF docs";
-          Logger.errorNotify(errMsg, error);
+          Logger.errorNotify(errMsg, error, "extension searchInEspIdfDocs");
           return;
         }
       }
@@ -1407,7 +1511,7 @@ export async function activate(context: vscode.ExtensionContext) {
               : typeof error === "string"
               ? error
               : "Error installing Python requirements";
-            Logger.errorNotify(msg, error);
+            Logger.errorNotify(msg, error, "extension installPyReqs");
           }
         }
       );
@@ -1487,7 +1591,7 @@ export async function activate(context: vscode.ExtensionContext) {
               : typeof error === "string"
               ? error
               : "Error installing ESP-Matter Python Requirements";
-            Logger.errorNotify(msg, error);
+            Logger.errorNotify(msg, error, "extension installEspMatterPyReqs");
           }
         }
       );
@@ -1509,7 +1613,7 @@ export async function activate(context: vscode.ExtensionContext) {
             ? error.message
             : "Error checking PyTest python packages";
         OutputChannel.appendLine(msg, "idf-unit-test");
-        Logger.error(msg, error);
+        Logger.error(msg, error, "extension checkPytestRequirements");
       }
 
       const notificationMode = idfConf.readParameter(
@@ -1539,7 +1643,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 ? error.message
                 : "Error installing PyTest python packages";
             OutputChannel.appendLine(msg, "idf-unit-test");
-            Logger.error(msg, error);
+            Logger.error(msg, error, "extension installPyTestPackages");
           }
         }
       );
@@ -1590,7 +1694,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 ? error.message
                 : "Error build or flashing PyTest Unit App for project";
             OutputChannel.appendLine(msg, "idf-unit-test");
-            Logger.error(msg, error);
+            Logger.error(msg, error, "extension buildFlashTestApp");
           }
         }
       );
@@ -1618,7 +1722,7 @@ export async function activate(context: vscode.ExtensionContext) {
         );
       } catch (error) {
         const errMsg = error.message || "Error creating .vscode folder";
-        Logger.errorNotify(errMsg, error);
+        Logger.errorNotify(errMsg, error, "extension createVsCodeFolder");
         return;
       }
     });
@@ -1635,7 +1739,7 @@ export async function activate(context: vscode.ExtensionContext) {
         );
       } catch (error) {
         const errMsg = error.message || "Error creating .devcontainer folder";
-        Logger.errorNotify(errMsg, error);
+        Logger.errorNotify(errMsg, error, "extension createDevContainer");
         return;
       }
     });
@@ -1660,7 +1764,11 @@ export async function activate(context: vscode.ExtensionContext) {
         );
       } catch (error) {
         const errMsg = error.message || "Error creating ESP-IDF component";
-        return Logger.errorNotify(errMsg, error);
+        return Logger.errorNotify(
+          errMsg,
+          error,
+          "extension createNewComponent"
+        );
       }
     });
   });
@@ -1726,12 +1834,16 @@ export async function activate(context: vscode.ExtensionContext) {
                 context.extensionPath
               );
             } catch (error) {
-              Logger.errorNotify(error.message, error);
+              Logger.errorNotify(
+                error.message,
+                error,
+                "extension menuconfig confserver init"
+              );
             }
           }
         );
       } catch (error) {
-        Logger.errorNotify(error.message, error);
+        Logger.errorNotify(error.message, error, "extension menuconfig start");
       }
     });
   });
@@ -1754,7 +1866,11 @@ export async function activate(context: vscode.ExtensionContext) {
           try {
             await saveDefSdkconfig(workspaceRoot, cancelToken);
           } catch (error) {
-            Logger.errorNotify(error.message, error);
+            Logger.errorNotify(
+              error.message,
+              error,
+              "extension saveDefSdkconfig"
+            );
           }
         }
       );
@@ -1767,7 +1883,11 @@ export async function activate(context: vscode.ExtensionContext) {
         ConfserverProcess.dispose();
       }
     } catch (error) {
-      Logger.errorNotify(error.message, error);
+      Logger.errorNotify(
+        error.message,
+        error,
+        "extension disposeConfserverProcess"
+      );
     }
   });
 
@@ -1780,6 +1900,7 @@ export async function activate(context: vscode.ExtensionContext) {
         workspaceRoot
       );
       await setIdfTarget(enterDeviceTargetMsg, workspaceFolder);
+      await getIdfTargetFromSdkconfig(workspaceRoot, statusBarItems["target"]);
     });
   });
 
@@ -1819,12 +1940,16 @@ export async function activate(context: vscode.ExtensionContext) {
               setupArgs.espIdfStatusBar = statusBarItems["currentIdfVersion"];
               SetupPanel.createOrShow(context, setupArgs);
             } catch (error) {
-              Logger.errorNotify(error.message, error);
+              Logger.errorNotify(
+                error.message,
+                error,
+                "extension setup getSetupInitialValues"
+              );
             }
           }
         );
       } catch (error) {
-        Logger.errorNotify(error.message, error);
+        Logger.errorNotify(error.message, error, "extension setup");
       }
     });
   });
@@ -1876,12 +2001,16 @@ export async function activate(context: vscode.ExtensionContext) {
               examplesFolder.description
             );
           } catch (error) {
-            Logger.errorNotify(error.message, error);
+            Logger.errorNotify(
+              error.message,
+              error,
+              "extension examples create show"
+            );
           }
         }
       );
     } catch (error) {
-      Logger.errorNotify(error.message, error);
+      Logger.errorNotify(error.message, error, "extension examples");
     }
   });
 
@@ -1893,7 +2022,8 @@ export async function activate(context: vscode.ExtensionContext) {
           vscode.l10n.t(
             "Cannot call this command directly, right click on any CMakeLists.txt file!"
           ),
-          new Error("INVALID_INVOCATION")
+          new Error("INVALID_INVOCATION"),
+          "extension cmakeListsEditor no file"
         );
         return;
       }
@@ -1937,7 +2067,7 @@ export async function activate(context: vscode.ExtensionContext) {
           }
           WelcomePanel.createOrShow(context.extensionPath, welcomeArgs);
         } catch (error) {
-          Logger.errorNotify(error.message, error);
+          Logger.errorNotify(error.message, error, "extension welcome");
         }
       }
     );
@@ -1978,7 +2108,7 @@ export async function activate(context: vscode.ExtensionContext) {
           }
           NewProjectPanel.createOrShow(context.extensionPath, newProjectArgs);
         } catch (error) {
-          Logger.errorNotify(error.message, error);
+          Logger.errorNotify(error.message, error, "extension newProject");
         }
       }
     );
@@ -2064,7 +2194,7 @@ export async function activate(context: vscode.ExtensionContext) {
     } catch (error) {
       const errMsg =
         error.message || "Failed to select openOCD configuration files";
-      Logger.errorNotify(errMsg, error);
+      Logger.errorNotify(errMsg, error, "extension selectOpenOcdConfigFiles");
       return;
     }
   });
@@ -2115,7 +2245,11 @@ export async function activate(context: vscode.ExtensionContext) {
             } catch (error) {
               const msg: string =
                 error && error.message ? error.message : JSON.stringify(error);
-              Logger.errorNotify(msg, error);
+              Logger.errorNotify(
+                msg,
+                error,
+                "extension IDFSizePanel calculate"
+              );
             }
           }
         );
@@ -2133,10 +2267,10 @@ export async function activate(context: vscode.ExtensionContext) {
           if (buildProject === "Build") {
             vscode.commands.executeCommand("espIdf.buildDevice");
           }
-          Logger.error(msg, error);
+          Logger.error(msg, error, "extension IDFSizePanel build files");
           return;
         }
-        Logger.errorNotify(error.message, error);
+        Logger.errorNotify(error.message, error, "extension IDFSizePanel");
       }
     });
   });
@@ -2227,7 +2361,7 @@ export async function activate(context: vscode.ExtensionContext) {
       try {
         await configureProjectWithGcov(workspaceRoot);
       } catch (error) {
-        Logger.errorNotify(error.message, error);
+        Logger.errorNotify(error.message, error, "extension setGcovConfig");
       }
     });
   });
@@ -2316,7 +2450,7 @@ export async function activate(context: vscode.ExtensionContext) {
             const msg = error.message
               ? error.message
               : "Error merging binaries for QEMU";
-            Logger.errorNotify(msg, error);
+            Logger.errorNotify(msg, error, "extension qemu");
           }
         }
       );
@@ -2325,52 +2459,79 @@ export async function activate(context: vscode.ExtensionContext) {
 
   registerIDFCommand("espIdf.qemuDebug", () => {
     PreCheck.perform([openFolderCheck], async () => {
-      if (IDFMonitor.terminal) {
-        IDFMonitor.terminal.sendText(ESP.CTRL_RBRACKET);
-      }
-      const buildDirPath = idfConf.readParameter(
-        "idf.buildPath",
+      const notificationMode = idfConf.readParameter(
+        "idf.notificationMode",
         workspaceRoot
       ) as string;
-      const qemuBinExists = await pathExists(
-        path.join(buildDirPath, "merged_qemu.bin")
-      );
-      if (!qemuBinExists) {
-        await mergeFlashBinaries(workspaceRoot);
-      }
-      if (qemuManager.isRunning()) {
-        qemuManager.stop();
-        await utils.sleep(1000);
-      }
-      qemuManager.configureWithDefValues();
-      qemuManager.start();
-      const gdbPath = await utils.getToolchainPath(workspaceRoot, "gdb");
-      const workspaceFolder = vscode.workspace.getWorkspaceFolder(
-        workspaceRoot
-      );
-      await vscode.debug.startDebugging(workspaceFolder, {
-        name: "GDB QEMU",
-        type: "gdbtarget",
-        request: "attach",
-        sessionID: "qemu.debug.session",
-        gdb: gdbPath,
-        initCommands: [
-          "set remote hardware-watchpoint-limit {IDF_TARGET_CPU_WATCHPOINT_NUM}",
-          "mon reset halt",
-          "maintenance flush register-cache",
-          "thb app_main",
-        ],
-        target: {
-          type: "remote",
-          host: "localhost",
-          port: "1234",
+      const ProgressLocation =
+        notificationMode === idfConf.NotificationMode.All ||
+        notificationMode === idfConf.NotificationMode.Notifications
+          ? vscode.ProgressLocation.Notification
+          : vscode.ProgressLocation.Window;
+      await vscode.window.withProgress(
+        {
+          cancellable: true,
+          location: ProgressLocation,
+          title: vscode.l10n.t("ESP-IDF: Starting ESP-IDF QEMU Debug"),
         },
-      });
-      vscode.debug.onDidTerminateDebugSession(async (session) => {
-        if (session.configuration.sessionID === "qemu.debug.session") {
-          qemuManager.stop();
+        async (
+          progress: vscode.Progress<{ message: string; increment: number }>,
+          cancelToken: vscode.CancellationToken
+        ) => {
+          try {
+            if (IDFMonitor.terminal) {
+              IDFMonitor.terminal.sendText(ESP.CTRL_RBRACKET);
+            }
+            const buildDirPath = idfConf.readParameter(
+              "idf.buildPath",
+              workspaceRoot
+            ) as string;
+            const qemuBinExists = await pathExists(
+              path.join(buildDirPath, "merged_qemu.bin")
+            );
+            if (!qemuBinExists) {
+              await mergeFlashBinaries(workspaceRoot);
+            }
+            if (qemuManager.isRunning()) {
+              qemuManager.stop();
+              await utils.sleep(1000);
+            }
+            await qemuManager.start(QemuLaunchMode.Debug, workspaceRoot);
+            const gdbPath = await utils.getToolchainPath(workspaceRoot, "gdb");
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+              workspaceRoot
+            );
+            await vscode.debug.startDebugging(workspaceFolder, {
+              name: "GDB QEMU",
+              type: "gdbtarget",
+              request: "attach",
+              sessionID: "qemu.debug.session",
+              gdb: gdbPath,
+              initCommands: [
+                "set remote hardware-watchpoint-limit {IDF_TARGET_CPU_WATCHPOINT_NUM}",
+                "mon reset halt",
+                "maintenance flush register-cache",
+                "thb app_main",
+              ],
+              target: {
+                type: "remote",
+                host: "localhost",
+                port: "1234",
+              },
+            });
+            vscode.debug.onDidTerminateDebugSession(async (session) => {
+              if (session.configuration.sessionID === "qemu.debug.session") {
+                qemuManager.stop();
+              }
+            });
+          } catch (error) {
+            const msg = error.message
+              ? error.message
+              : vscode.l10n.t("Error launching QEMU debugging");
+            Logger.errorNotify(msg, error, "extension qemu debug");
+          }
         }
-      });
+      );
     });
   });
 
@@ -2518,7 +2679,7 @@ export async function activate(context: vscode.ExtensionContext) {
           const errMsg = error.message
             ? error.message
             : "Configuration report error";
-          Logger.error(errMsg, error);
+          Logger.error(errMsg, error, "extension DoctorCommand");
           Logger.warnNotify(
             vscode.l10n.t(
               "Extension configuration report has been copied to clipboard with errors"
@@ -2540,7 +2701,7 @@ export async function activate(context: vscode.ExtensionContext) {
   });
 
   registerIDFCommand("espIdf.debug", async () => {
-    PreCheck.perform([openFolderCheck], async () => {
+    PreCheck.perform([webIdeCheck, openFolderCheck], async () => {
       const workspaceFolder = vscode.workspace.getWorkspaceFolder(
         workspaceRoot
       );
@@ -2591,7 +2752,8 @@ export async function activate(context: vscode.ExtensionContext) {
           vscode.l10n.t(
             "Cannot call this command directly, click on any Trace to view its report!"
           ),
-          new Error("INVALID_COMMAND")
+          new Error("INVALID_COMMAND"),
+          "extension apptrace showReport"
         );
         return;
       }
@@ -2706,7 +2868,8 @@ export async function activate(context: vscode.ExtensionContext) {
             vscode.l10n.t(
               "Failed to login with Rainmaker Cloud, double check your id and password"
             ),
-            error
+            error,
+            "extension rainmaker backend connect"
           );
         }
       }
@@ -2775,7 +2938,8 @@ export async function activate(context: vscode.ExtensionContext) {
               vscode.l10n.t(
                 "Failed to delete node, maybe the node is already marked for delete, please try again after sometime"
               ),
-              error
+              error,
+              "extension rainmaker backend remove node"
             );
           }
         }
@@ -2864,7 +3028,11 @@ export async function activate(context: vscode.ExtensionContext) {
                 "Failed to update param because, "
               )} ${error.response.data.description}`;
             }
-            Logger.errorNotify(errorMsg, error);
+            Logger.errorNotify(
+              errorMsg,
+              error,
+              "extension rainmaker backend update node param"
+            );
           }
         }
       );
@@ -2882,12 +3050,14 @@ export async function activate(context: vscode.ExtensionContext) {
           } catch (error) {
             Logger.error(
               vscode.l10n.t("Unable to execute the command: espIdf.selectPort"),
-              error
+              error,
+              "extension launchWSServerAndMonitor selectPort"
             );
           }
           return Logger.errorNotify(
             vscode.l10n.t("Select a serial port before flashing"),
-            new Error("NOT_SELECTED_PORT")
+            new Error("NOT_SELECTED_PORT"),
+            "extension launchWSServerAndMonitor select port"
           );
         }
 
@@ -2895,7 +3065,8 @@ export async function activate(context: vscode.ExtensionContext) {
         if (!utils.canAccessFile(pythonBinPath, constants.R_OK)) {
           Logger.errorNotify(
             vscode.l10n.t("Python binary path is not defined"),
-            new Error("The Python Binary Path is not defined")
+            new Error("The Python Binary Path is not defined"),
+            "extension launchWSServerAndMonitor python path not set"
           );
         }
         const idfPath = idfConf.readParameter(
@@ -2910,7 +3081,8 @@ export async function activate(context: vscode.ExtensionContext) {
         if (!utils.canAccessFile(idfMonitorToolPath, constants.R_OK)) {
           Logger.errorNotify(
             idfMonitorToolPath + vscode.l10n.t(" is not defined"),
-            new Error(idfMonitorToolPath + " is not defined")
+            new Error(idfMonitorToolPath + " is not defined"),
+            "extension launchWSServerAndMonitor idf_monitor no access"
           );
         }
         await installWebsocketClient(workspaceRoot);
@@ -3058,7 +3230,8 @@ export async function activate(context: vscode.ExtensionContext) {
                   } catch (error) {
                     Logger.errorNotify(
                       vscode.l10n.t("Failed to launch debugger for postmortem"),
-                      error
+                      error,
+                      "extension launchWSServerAndMonitor coredump"
                     );
                   }
                 } else {
@@ -3100,7 +3273,8 @@ export async function activate(context: vscode.ExtensionContext) {
             } catch (error) {
               Logger.errorNotify(
                 "Failed to launch debugger for postmortem",
-                error
+                error,
+                "extension launchWSServerAndMonitor gdbstub"
               );
             }
           })
@@ -3115,7 +3289,11 @@ export async function activate(context: vscode.ExtensionContext) {
                 { wsPort }
               );
             }
-            Logger.errorNotify(message, err);
+            Logger.errorNotify(
+              message,
+              err,
+              "extension launchWSServerAndMonitor error event"
+            );
             wsServer.close();
           });
       }
@@ -3206,7 +3384,11 @@ export async function activate(context: vscode.ExtensionContext) {
           }
           filePath = partitionTableFilePath;
         } catch (error) {
-          return Logger.errorNotify(error.message, error);
+          return Logger.errorNotify(
+            error.message,
+            error,
+            "extension partition table"
+          );
         }
       }
       PartitionTableEditorPanel.show(context.extensionPath, filePath);
@@ -3235,13 +3417,14 @@ export async function activate(context: vscode.ExtensionContext) {
           eFuseExplorer.refresh();
         } catch (error) {
           if (error.name === "IDF_VERSION_MIN_REQUIREMENT_ERROR") {
-            return Logger.errorNotify(error.message, error);
+            return Logger.errorNotify(error.message, error, "extension");
           }
           Logger.errorNotify(
             vscode.l10n.t(
               "Failed to get the eFuse Summary from the chip, please make sure you have selected a valid port"
             ),
-            error
+            error,
+            "extension efuse summary"
           );
         }
       }
@@ -3296,7 +3479,8 @@ export async function activate(context: vscode.ExtensionContext) {
         } catch (error) {
           Logger.errorNotify(
             vscode.l10n.t("Ninja build summary found an error"),
-            error
+            error,
+            "extension ninja summary"
           );
         }
       }
@@ -3324,7 +3508,7 @@ export async function activate(context: vscode.ExtensionContext) {
             await installEspSBOM(workspaceRoot);
             await createSBOM(workspaceRoot);
           } catch (err) {
-            return Logger.errorNotify(err.message, err);
+            return Logger.errorNotify(err.message, err, "extension sbom");
           }
         }
       );
@@ -3358,7 +3542,7 @@ export async function activate(context: vscode.ExtensionContext) {
           const errMsg = error.message
             ? error.message
             : "Error at NVS Partition Editor";
-          Logger.errorNotify(errMsg, error);
+          Logger.errorNotify(errMsg, error, "extension nvsPartitionEditor");
         }
       }
       NVSPartitionTable.createOrShow(
@@ -3372,7 +3556,7 @@ export async function activate(context: vscode.ExtensionContext) {
     try {
       ComponentManagerUIPanel.show(context.extensionPath, workspaceRoot);
     } catch (error) {
-      Logger.errorNotify(error.message, error);
+      Logger.errorNotify(error.message, error, "extension component manager");
     }
   });
   vscode.window.registerUriHandler({
@@ -3411,6 +3595,7 @@ export async function activate(context: vscode.ExtensionContext) {
           return Logger.errorNotify(
             vscode.l10n.t("Failed to sign-in with Rainmaker (via OAuth)"),
             error,
+            "extension rainmaker Uri handler",
             { meta: JSON.stringify(error) }
           );
         }
@@ -3579,7 +3764,7 @@ async function getFrameworksPickItems() {
     }
   } catch (error) {
     const errMsg = error.message ? error.message : "Error getting frameworks";
-    Logger.errorNotify(errMsg, error);
+    Logger.errorNotify(errMsg, error, "extension getFrameworksPickItems");
     return pickItems;
   }
   return pickItems;
@@ -3652,145 +3837,6 @@ function registerTreeProvidersForIDFExplorer(context: vscode.ExtensionContext) {
   );
 }
 
-async function createCmdsStatusBarItems() {
-  const enableStatusBar = idfConf.readParameter(
-    "idf.enableStatusBar"
-  ) as boolean;
-  if (!enableStatusBar) {
-    return {};
-  }
-  if (!workspaceRoot) {
-    workspaceRoot =
-      vscode.workspace.workspaceFolders &&
-      vscode.workspace.workspaceFolders.length
-        ? vscode.workspace.workspaceFolders[0].uri
-        : undefined;
-  }
-  const port = idfConf.readParameter("idf.port", workspaceRoot) as string;
-  let idfTarget = await getIdfTargetFromSdkconfig(workspaceRoot);
-  let flashType = idfConf.readParameter(
-    "idf.flashType",
-    workspaceRoot
-  ) as string;
-  let projectConf = ESP.ProjectConfiguration.store.get<string>(
-    ESP.ProjectConfiguration.SELECTED_CONFIG
-  );
-  let currentIdfVersion = await getCurrentIdfSetup(workspaceRoot, false);
-  const statusBarItems: { [key: string]: vscode.StatusBarItem } = {};
-
-  statusBarItems["currentIdfVersion"] = createStatusBarItem(
-    "$(octoface) ESP-IDF v" + currentIdfVersion.version,
-    "ESP-IDF: Select current ESP-IDF version",
-    "espIdf.selectCurrentIdfVersion",
-    102
-  );
-
-  statusBarItems["port"] = createStatusBarItem(
-    "$(plug)" + port,
-    vscode.l10n.t("ESP-IDF: Select Port to Use (COM, tty, usbserial)"),
-    "espIdf.selectPort",
-    101
-  );
-
-  if (projectConf) {
-    statusBarItems["projectConf"] = createStatusBarItem(
-      "$(gear)" + projectConf,
-      vscode.l10n.t("ESP-IDF: Select Project Configuration"),
-      "espIdf.projectConf",
-      100
-    );
-  }
-
-  statusBarItems["target"] = createStatusBarItem(
-    "$(chip) " + idfTarget,
-    vscode.l10n.t("ESP-IDF: Set Espressif Device Target"),
-    "espIdf.setTarget",
-    99
-  );
-  statusBarItems["workspace"] = createStatusBarItem(
-    "$(file-submodule)",
-    vscode.l10n.t("ESP-IDF: Current Project"),
-    "espIdf.pickAWorkspaceFolder",
-    98
-  );
-  statusBarItems["menuconfig"] = createStatusBarItem(
-    "$(gear)",
-    vscode.l10n.t("ESP-IDF: SDK Configuration Editor (menuconfig)"),
-    "espIdf.menuconfig.start",
-    97
-  );
-  statusBarItems["clean"] = createStatusBarItem(
-    "$(trash)",
-    vscode.l10n.t("ESP-IDF: Full Clean"),
-    "espIdf.fullClean",
-    96
-  );
-  statusBarItems["build"] = createStatusBarItem(
-    "$(symbol-property)",
-    vscode.l10n.t("ESP-IDF: Build Project"),
-    "espIdf.buildDevice",
-    95
-  );
-  statusBarItems["flashType"] = createStatusBarItem(
-    `$(star-empty) ${flashType}`,
-    vscode.l10n.t("ESP-IDF: Select Flash Method"),
-    "espIdf.selectFlashMethodAndFlash",
-    94
-  );
-  statusBarItems["flash"] = createStatusBarItem(
-    `$(zap)`,
-    vscode.l10n.t("ESP-IDF: Flash Device"),
-    "espIdf.flashDevice",
-    93
-  );
-  statusBarItems["monitor"] = createStatusBarItem(
-    "$(device-desktop)",
-    vscode.l10n.t("ESP-IDF: Monitor Device"),
-    "espIdf.monitorDevice",
-    92
-  );
-  statusBarItems["debug"] = createStatusBarItem(
-    "$(debug-alt)",
-    vscode.l10n.t("ESP-IDF: Debug"),
-    "espIdf.debug",
-    91
-  );
-  statusBarItems["buildFlashMonitor"] = createStatusBarItem(
-    "$(flame)",
-    vscode.l10n.t("ESP-IDF: Build, Flash and Monitor"),
-    "espIdf.buildFlashMonitor",
-    90
-  );
-  statusBarItems["terminal"] = createStatusBarItem(
-    "$(terminal)",
-    vscode.l10n.t("ESP-IDF: Open ESP-IDF Terminal"),
-    "espIdf.createIdfTerminal",
-    89
-  );
-  statusBarItems["espIdf.customTask"] = createStatusBarItem(
-    "$(diff-renamed)",
-    vscode.l10n.t("ESP-IDF: Execute Custom Task"),
-    "espIdf.customTask",
-    88
-  );
-  return statusBarItems;
-}
-
-function createStatusBarItem(
-  icon: string,
-  tooltip: string,
-  cmd: string,
-  priority: number
-) {
-  const alignment: vscode.StatusBarAlignment = vscode.StatusBarAlignment.Left;
-  const statusBarItem = vscode.window.createStatusBarItem(alignment, priority);
-  statusBarItem.text = icon;
-  statusBarItem.tooltip = tooltip;
-  statusBarItem.command = cmd;
-  statusBarItem.show();
-  return statusBarItem;
-}
-
 const build = (flashType?: ESP.FlashType) => {
   PreCheck.perform([openFolderCheck], async () => {
     const notificationMode = idfConf.readParameter(
@@ -3827,7 +3873,12 @@ const flash = (
   encryptPartition: boolean = false,
   flashType?: ESP.FlashType
 ) => {
-  PreCheck.perform([webIdeCheck, openFolderCheck], async () => {
+  PreCheck.perform([openFolderCheck], async () => {
+    // Re route to ESP-IDF Web extension if using Codespaces or Browser
+    if (vscode.env.uiKind === vscode.UIKind.Web) {
+      vscode.commands.executeCommand(IDFWebCommandKeys.Flash);
+      return;
+    }
     const notificationMode = idfConf.readParameter(
       "idf.notificationMode",
       workspaceRoot
@@ -3865,35 +3916,62 @@ const flash = (
 
 function createQemuMonitor() {
   PreCheck.perform([openFolderCheck], async () => {
-    const isQemuLaunched = qemuManager.isRunning();
-    if (isQemuLaunched) {
-      qemuManager.stop();
-    }
-    const qemuTcpPort = idfConf.readParameter(
-      "idf.qemuTcpPort",
+    const notificationMode = idfConf.readParameter(
+      "idf.notificationMode",
       workspaceRoot
-    ) as number;
-    qemuManager.configure({
-      launchArgs: [
-        "-nographic",
-        "-machine",
-        "esp32",
-        "-drive",
-        "file=build/merged_qemu.bin,if=mtd,format=raw",
-        "-monitor stdio",
-        `-serial tcp::${qemuTcpPort},server,nowait`,
-      ],
-    } as IQemuOptions);
-    await qemuManager.start();
-    if (IDFMonitor.terminal) {
-      await utils.sleep(1000);
-    }
-    const serialPort = `socket://localhost:${qemuTcpPort}`;
-    const noReset = idfConf.readParameter(
-      "idf.monitorNoReset",
-      workspaceRoot
-    ) as boolean;
-    await createNewIdfMonitor(workspaceRoot, noReset, serialPort);
+    ) as string;
+    const ProgressLocation =
+      notificationMode === idfConf.NotificationMode.All ||
+      notificationMode === idfConf.NotificationMode.Notifications
+        ? vscode.ProgressLocation.Notification
+        : vscode.ProgressLocation.Window;
+    await vscode.window.withProgress(
+      {
+        cancellable: true,
+        location: ProgressLocation,
+        title: "ESP-IDF: Starting ESP-IDF QEMU Monitor",
+      },
+      async (
+        progress: vscode.Progress<{ message: string; increment: number }>,
+        cancelToken: vscode.CancellationToken
+      ) => {
+        try {
+          const isQemuLaunched = qemuManager.isRunning();
+          if (isQemuLaunched) {
+            qemuManager.stop();
+          }
+          const buildDirPath = idfConf.readParameter(
+            "idf.buildPath",
+            workspaceRoot
+          ) as string;
+          const qemuBinExists = await pathExists(
+            path.join(buildDirPath, "merged_qemu.bin")
+          );
+          if (!qemuBinExists) {
+            await mergeFlashBinaries(workspaceRoot);
+          }
+          const qemuTcpPort = idfConf.readParameter(
+            "idf.qemuTcpPort",
+            workspaceRoot
+          ) as string;
+          await qemuManager.start(QemuLaunchMode.Monitor, workspaceRoot);
+          if (IDFMonitor.terminal) {
+            await utils.sleep(1000);
+          }
+          const serialPort = `socket://localhost:${qemuTcpPort}`;
+          const noReset = idfConf.readParameter(
+            "idf.monitorNoReset",
+            workspaceRoot
+          ) as boolean;
+          await createNewIdfMonitor(workspaceRoot, noReset, serialPort);
+        } catch (error) {
+          const msg = error.message
+            ? error.message
+            : "Error launching QEMU monitor";
+          Logger.errorNotify(msg, error, "extension qemu monitor");
+        }
+      }
+    );
   });
 }
 
@@ -4030,7 +4108,7 @@ async function startFlashing(
 }
 
 function createIdfTerminal() {
-  PreCheck.perform([webIdeCheck, openFolderCheck], async () => {
+  PreCheck.perform([openFolderCheck], async () => {
     const modifiedEnv = await utils.appendIdfAndToolsToPath(workspaceRoot);
     const espIdfTerminal = vscode.window.createTerminal({
       name: "ESP-IDF Terminal",
@@ -4045,7 +4123,12 @@ function createIdfTerminal() {
 }
 
 function createMonitor() {
-  PreCheck.perform([webIdeCheck, openFolderCheck], async () => {
+  PreCheck.perform([openFolderCheck], async () => {
+    // Re route to ESP-IDF Web extension if using Codespaces or Browser
+    if (vscode.env.uiKind === vscode.UIKind.Web) {
+      vscode.commands.executeCommand(IDFWebCommandKeys.Monitor);
+      return;
+    }
     const noReset = idfConf.readParameter(
       "idf.monitorNoReset",
       workspaceRoot
@@ -4118,7 +4201,11 @@ class IdfDebugConfigurationProvider
       const msg = error.message
         ? error.message
         : "Some build files doesn't exist. Build this project first.";
-      Logger.error(error.message, error);
+      Logger.error(
+        error.message,
+        error,
+        "extension IdfDebugConfigurationProvider"
+      );
       const startBuild = await vscode.window.showInformationMessage(
         msg,
         "Build"

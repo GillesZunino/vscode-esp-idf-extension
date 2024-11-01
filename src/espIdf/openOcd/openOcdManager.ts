@@ -30,6 +30,11 @@ import {
 } from "../../utils";
 import { TCLClient, TCLConnection } from "./tcl/tclClient";
 import { ESP } from "../../config";
+import { statusBarItems } from "../../statusBar";
+import {
+  CommandKeys,
+  createCommandDictionary,
+} from "../../cmdTreeView/cmdStore";
 
 export interface IOpenOCDConfig {
   workspace: vscode.Uri;
@@ -110,7 +115,7 @@ export class OpenOCDManager extends EventEmitter {
       }
     } catch (error) {
       const msg = error.message ? error.message : JSON.stringify(error);
-      Logger.error(msg, error);
+      Logger.error(msg, error, "OpenOCDManager commandHandler");
       OutputChannel.appendLine(msg, "OpenOCD");
     }
     return true;
@@ -218,7 +223,7 @@ export class OpenOCDManager extends EventEmitter {
           " "
         )}`;
         const err = new Error(errorMsg);
-        Logger.error(errorMsg + `\n❌ ${errStr}`, err);
+        Logger.error(errorMsg + `\n❌ ${errStr}`, err, "OpenOCDManager stderr");
         OutputChannel.appendLine(`❌ ${errStr}`, "OpenOCD");
         this.emit("error", err, this.chan);
       }
@@ -245,7 +250,7 @@ export class OpenOCDManager extends EventEmitter {
       if (!signal && code && code !== 0) {
         Logger.error(
           `OpenOCD Exit with non-zero error code ${code}`,
-          new Error("Spawn exit with non-zero" + code)
+          new Error("Spawn exit with non-zero" + code), "OpenOCDManager close"
         );
         OutputChannel.appendLine(
           `OpenOCD Exit with non-zero error code ${code}`,
@@ -275,12 +280,22 @@ export class OpenOCDManager extends EventEmitter {
 
   private registerOpenOCDStatusBarItem() {
     this.statusBar = vscode.window.createStatusBarItem(
+      CommandKeys.OpenOCD,
       vscode.StatusBarAlignment.Right,
       1000
     );
     this.statusBar.text = "[ESP-IDF: OpenOCD Server]";
-    this.statusBar.command = "espIdf.openOCDCommand";
-    this.statusBar.show();
+    const commandDictionary = createCommandDictionary();
+    this.statusBar.tooltip = commandDictionary[CommandKeys.OpenOCD].tooltip;
+    this.statusBar.command = CommandKeys.OpenOCD;
+    if (
+      commandDictionary[CommandKeys.OpenOCD].checkboxState ===
+      vscode.TreeItemCheckboxState.Checked
+    ) {
+      this.statusBar.show();
+    }
+
+    statusBarItems["openOCD"] = this.statusBar;
   }
 
   private configureServerWithDefaultParam() {
@@ -289,7 +304,9 @@ export class OpenOCDManager extends EventEmitter {
     }
     this.chan = Buffer.alloc(0);
     OutputChannel.init();
-    this.registerOpenOCDStatusBarItem();
+    if (vscode.env.uiKind !== vscode.UIKind.Web) {
+      this.registerOpenOCDStatusBarItem();
+    }
   }
 
   private sendToOutputChannel(data: Buffer) {

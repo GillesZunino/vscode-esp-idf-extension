@@ -123,11 +123,11 @@ for a list of USB serial devices.
 .. note::
   this command needs to be used only one time,unless the computer has restarted. **1-1** is the device's bus id ``<BUSID>`` I would like to bind.
 
-5. After binding, please attach the specified device to WSL with this command in the Powershell command prompt.
+5. After binding, please attach the specified device to WSL with this command in the Powershell command prompt. The ``--auto-attach`` parameter allows the device to be visible in the container after unplug and plug.
 
 .. code-block::
 
-  usbipd attach --wsl --busid <BUSID>
+  usbipd attach --wsl --busid <BUSID> --auto-attach
 
 6. At last, let us check if it works well on both side and type this command on WSL side.
 
@@ -231,6 +231,9 @@ Create a Container
 
 At this moment, you can start to use the ``Blink`` example project for building, flashing, monitoring, debugging, etc.
 
+.. warning::
+  * In order to have access to the serial port from the Docker container, make sure you have attached the device with ``usbipd attach --wsl --busid <BUSID> --auto-attach`` **BEFORE** opening the folder in container in VS Code otherwise it won't be visible. If you want to be able to plug and unplug the device and still see it in the docker container don't forget the  ``--auto-attach`` usbipd parameter.
+
 3. Here taking the esp32-c3 as an example, users only need to change the target device from ``esp32`` to ``esp32-c3``, as below:
 
 .. image:: ../../../media/tutorials/using_docker_container/device_target_esp32_c3.png
@@ -285,7 +288,7 @@ USB-JTAG for Docker container
 Debugging in Docker Container 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- Make sure to run **ESP-IDF: Add OpenOCD rules file (For Linux users)** command to add OpenOCD rules in the docker container before running OpenOCD and starting a debug session.
+- Make sure to copy the `OpenOCD udev rules files <https://github.com/espressif/openocd-esp32/blob/master/contrib/60-openocd.rules>`_ into the ``/etc/udev/rules.d`` directory before running OpenOCD and starting a debug session.
 
 - After following `USB-JTAG for Docker container`_, press ``F5`` to start to debug:
 

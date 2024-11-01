@@ -54,7 +54,11 @@ export function getProjectName(buildDir: string): Promise<string> {
       }
       fs.readFile(projDescJsonPath, (err, data) => {
         if (err) {
-          Logger.error(err.message, err);
+          Logger.error(
+            err.message,
+            err,
+            "workspaceConfig getProjectName readFile"
+          );
           return reject(err);
         }
         const projDescJson = JSON.parse(data.toString());
@@ -72,7 +76,7 @@ export function getProjectName(buildDir: string): Promise<string> {
       });
     } catch (error) {
       const errMsg = error && error.message ? error.message : error;
-      Logger.error(errMsg, error);
+      Logger.error(errMsg, error, "workspaceConfig getProjectName");
       return reject(error);
     }
   });
@@ -82,21 +86,23 @@ export async function getIdfTargetFromSdkconfig(
   workspacePath: vscode.Uri,
   statusItem?: vscode.StatusBarItem
 ) {
-  let sdkConfigPath = await getSDKConfigFilePath(workspacePath);
-  const doesSdkconfigExists = await pathExists(sdkConfigPath);
-  if (!doesSdkconfigExists) {
-    return;
+  try {
+    const configIdfTarget = await utils.getConfigValueFromSDKConfig(
+      "CONFIG_IDF_TARGET",
+      workspacePath
+    );
+    let idfTarget = configIdfTarget.replace(/\"/g, "");
+    if (!idfTarget) {
+      idfTarget = "esp32";
+    }
+    if (statusItem) {
+      statusItem.text = "$(chip) " + idfTarget;
+    }
+    return idfTarget;
+  } catch (error) {
+    if (statusItem) {
+      statusItem.text = "$(chip) esp32";
+    }
+    return "esp32";
   }
-  const configIdfTarget = await utils.getConfigValueFromSDKConfig(
-    "CONFIG_IDF_TARGET",
-    workspacePath
-  );
-  const idfTarget = configIdfTarget.replace(/\"/g, "");
-  if (!idfTarget) {
-    return;
-  }
-  if (statusItem) {
-    statusItem.text = "$(chip) " + idfTarget;
-  }
-  return idfTarget;
 }

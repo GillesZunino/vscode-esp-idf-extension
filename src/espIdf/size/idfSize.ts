@@ -60,8 +60,10 @@ export class IDFSize {
       ) as string;
       const version = await utils.getEspIdfFromCMake(espIdfPath);
       const formatArgs =
-        utils.compareVersion(version, "5.1.0") >= 0
-          ? ["--format", "json"]
+        utils.compareVersion(version, "5.3.0") >= 0
+          ? ["--format", "json2"]
+          : utils.compareVersion(version, "5.1.0") >= 0
+          ? ["--format", "json"] 
           : ["--json"];
       const overview = await this.idfCommandInvoker([
         "idf_size.py",
@@ -131,7 +133,7 @@ export class IDFSize {
       const throwableError = new Error(
         vscode.l10n.t("Error encountered while calling idf_size.py")
       );
-      Logger.error(error.message, error);
+      Logger.error(error.message, error, "IDFSize idfCommandInvoker");
       throw throwableError;
     }
   }

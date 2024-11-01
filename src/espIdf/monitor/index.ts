@@ -18,7 +18,7 @@
 
 import { ESP } from "../../config";
 import { appendIdfAndToolsToPath, getUserShell } from "../../utils";
-import { window, Terminal, Uri, env } from "vscode";
+import { window, Terminal, Uri, env, debug } from "vscode";
 
 export interface MonitorConfig {
   baudRate: string;
@@ -46,6 +46,7 @@ export class IDFMonitor {
     IDFMonitor.config = config;
   }
 
+
   static async start() {
     const modifiedEnv = await appendIdfAndToolsToPath(this.config.workspaceFolder);
     if (!IDFMonitor.terminal) {
@@ -72,7 +73,7 @@ export class IDFMonitor {
 
     // Function to quote paths for PowerShell and correctly handle spaces for Bash
     const quotePath = (path) => {
-      if (shellType.includes("powershell")) {
+      if (shellType.includes("powershell") || shellType.includes("pwsh")) {
         return `'${path.replace(/'/g, "''")}'`;
       } else if (shellType.includes("cmd")) {
         return `"${path}"`;
@@ -96,7 +97,10 @@ export class IDFMonitor {
       "--toolchain-prefix",
       this.config.toolchainPrefix,
     ];
-    if (this.config.noReset && this.config.idfVersion >= "5.0") {
+    if (
+      this.isDebugSessionActive() ||
+      (this.config.noReset && this.config.idfVersion >= "5.0")
+    ) {
       args.splice(2, 0, "--no-reset");
     }
     if (this.config.enableTimestamps && this.config.idfVersion >= "4.4") {
@@ -121,9 +125,11 @@ export class IDFMonitor {
     const envSetCmd = process.platform === "win32" ? "set" : "export";
     const quotedIdfPath = quotePath(modifiedEnv.IDF_PATH);
 
-    if (shellType.includes("powershell")) {
-      this.terminal.sendText(`& ${envSetCmd} IDF_PATH=${quotedIdfPath}`);
-      this.terminal.sendText(`& ${args.join(" ")}`);
+    if (shellType.includes("powershell") || shellType.includes("pwsh")) {
+      this.terminal.sendText(`$env:IDF_PATH = ${quotedIdfPath};`);
+      // For pwsh users on Linux, we need to add delay between commands
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      this.terminal.sendText(` & ${args.join(" ")}\r`);
     } else if (shellType.includes("cmd")) {
       this.terminal.sendText(`${envSetCmd} IDF_PATH=${modifiedEnv.IDF_PATH}`);
       this.terminal.sendText(args.join(" "));
@@ -140,5 +146,9 @@ export class IDFMonitor {
       this.terminal.sendText(ESP.CTRL_RBRACKET);
       this.terminal.sendText(`exit`);
     } catch (error) {}
+  }
+
+  private static isDebugSessionActive(): boolean {
+    return debug.activeDebugSession !== undefined;
   }
 }
