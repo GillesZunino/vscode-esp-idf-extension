@@ -67,6 +67,7 @@
   "espIdf.monitorQemu.title": "Monitor QEMU Device",
   "espIdf.newProject.start.title": "New Project",
   "espIdf.ninja.summary.title": "Show Ninja Build Summary",
+  "espIdf.openFreeRTOSInspector.title": "Open FreeRTOS Inspector",
   "espIdf.openDocUrl.title": "Open ESP-IDF Documentation...",
   "espIdf.openOCDCommand.title": "OpenOCD Manager",
   "espIdf.partition.table.refresh.title": "Refresh Partition Table",

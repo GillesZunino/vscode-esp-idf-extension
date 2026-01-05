@@ -187,6 +187,7 @@ import {
 import { configureClangSettings } from "./clang";
 import { OpenOCDErrorMonitor } from "./espIdf/hints/openocdhint";
 import { updateHintsStatusBarItem } from "./statusBar";
+import { FreeRTOSInspectorPanel } from "./cdtDebugAdapter/freeRtosPanel";
 
 // Global variables shared by commands
 let workspaceRoot: vscode.Uri;
@@ -1545,6 +1546,13 @@ export async function activate(context: vscode.ExtensionContext) {
             "or ESP-IDF documentation: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/app_trace.html#gcov-source-code-coverage \n"
         );
       }
+    });
+  });
+
+    registerIDFCommand("espIdf.openFreeRTOSInspector", () => {
+    return PreCheck.perform([openFolderCheck], async () => {
+      await FreeRTOSInspectorPanel.show(context.extensionPath);
+      // TODO: Fill this in
     });
   });
 

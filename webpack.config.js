@@ -140,6 +140,13 @@ const webViewConfig = {
       "troubleshoot",
       "main.ts"
     ),
+    freeRtosInspector: path.resolve(
+      __dirname,
+      "src",
+      "views",
+      "freertos-inspector",
+      "main.ts"
+    ),
   },
   output: {
     path: path.resolve(__dirname, "dist", "views"),

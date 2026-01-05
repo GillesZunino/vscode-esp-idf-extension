@@ -109,6 +109,7 @@
     "onView:idfPartitionExplorer",
     "onView:espRainmaker",
     "onView:idfComponents",
+    "onCommand:espIdf.openFreeRTOSInspector",
     "workspaceContains:**/CMakeLists.txt"
   ],
   "main": "./dist/extension",
@@ -299,6 +300,10 @@
           "id": "espIdfHints",
           "title": "ESP-IDF",
           "icon": "media/dep.svg"
+        },
+        {
+          "id": "espIdfFreeRTOSInspector",
+          "title": "FreeRTOS"
         }
       ],
       "activitybar": [
@@ -1831,6 +1836,11 @@
       {
         "command": "espIdf.setClangSettings",
         "title": "%espIdf.setClangSettings.title%",
+        "category": "ESP-IDF"
+      },
+      {
+        "command": "espIdf.openFreeRTOSInspector",
+        "title": "%espIdf.openFreeRTOSInspector.title%",
         "category": "ESP-IDF"
       }
     ],
