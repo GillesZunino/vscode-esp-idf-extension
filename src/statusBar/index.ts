@@ -26,17 +26,39 @@ import {
   Uri,
   window,
   l10n,
-  ThemeIcon,
+  ThemeColor,
 } from "vscode";
-import { getCurrentIdfSetup } from "../versionSwitcher";
 import { readParameter } from "../idfConfiguration";
 import { ESP } from "../config";
 import { CommandItem } from "../cmdTreeView/cmdTreeDataProvider";
 import { CommandKeys, createCommandDictionary } from "../cmdTreeView/cmdStore";
 import { getIdfTargetFromSdkconfig } from "../workspaceConfig";
 import { pathExists } from "fs-extra";
+import { getStoredAdapterSerial } from "../espIdf/openOcd/adapterSerial";
+import { getEspIdfFromCMake } from "../utils";
 
 export const statusBarItems: { [key: string]: StatusBarItem } = {};
+
+export function updateOpenOcdAdapterStatusBarItem(workspaceFolder: Uri) {
+  const item = statusBarItems["openOcdAdapter"];
+  if (!item) {
+    return;
+  }
+
+  const serial = getStoredAdapterSerial(workspaceFolder);
+  const customExtraVars = readParameter(
+    "idf.customExtraVars",
+    workspaceFolder
+  ) as { [key: string]: string };
+  const location =
+    customExtraVars && customExtraVars["OPENOCD_USB_ADAPTER_LOCATION"]
+      ? customExtraVars["OPENOCD_USB_ADAPTER_LOCATION"]
+      : undefined;
+
+  const serialText = serial ? `S:${serial}` : "S:-";
+  const locationText = location ? `L:${location}` : "L:-";
+  item.text = `[Adapter] ${serialText} ${locationText}`;
+}
 
 export function updateStatusBarItemVisibility(cmdItem: CommandItem) {
   for (let statusBarItemKey of Object.keys(statusBarItems)) {
@@ -49,6 +71,16 @@ export function updateStatusBarItemVisibility(cmdItem: CommandItem) {
         cmdItem.command.command,
         cmdItem.checkboxState
       );
+
+      // Ensure OpenOCD adapter item text is refreshed when it becomes visible.
+      if (cmdItem.command.command === CommandKeys.OpenOcdAdapterStatusBar) {
+        const selectedWorkspace = ESP.GlobalConfiguration.store.get<Uri>(
+          ESP.GlobalConfiguration.SELECTED_WORKSPACE_FOLDER
+        );
+        if (selectedWorkspace) {
+          updateOpenOcdAdapterStatusBarItem(selectedWorkspace);
+        }
+      }
     }
   }
 }
@@ -74,8 +106,9 @@ export async function createCmdsStatusBarItems(workspaceFolder: Uri) {
     ESP.ProjectConfiguration.PROJECT_CONFIGURATION_FILENAME
   );
   let projectConfExists = await pathExists(projectConfPath);
-
-  let currentIdfVersion = await getCurrentIdfSetup(workspaceFolder, false);
+  const currentEnvVars = ESP.ProjectConfiguration.store.get<{
+    [key: string]: string;
+  }>(ESP.ProjectConfiguration.CURRENT_IDF_CONFIGURATION, {});
 
   statusBarItems["workspace"] = createStatusBarItem(
     `$(${commandDictionary[CommandKeys.pickWorkspace].iconId})`,
@@ -85,10 +118,21 @@ export async function createCmdsStatusBarItems(workspaceFolder: Uri) {
     commandDictionary[CommandKeys.pickWorkspace].checkboxState
   );
 
+  // OpenOCD adapter info (serial/location) - hidden by default, enabled from ESP-IDF Explorer checkbox.
+  statusBarItems["openOcdAdapter"] = createStatusBarItem(
+    "[Adapter] S:- L:-",
+    commandDictionary[CommandKeys.OpenOcdAdapterStatusBar].tooltip,
+    CommandKeys.OpenOcdAdapterStatusBar,
+    105,
+    commandDictionary[CommandKeys.OpenOcdAdapterStatusBar].checkboxState
+  );
+  updateOpenOcdAdapterStatusBarItem(workspaceFolder);
+
+  const idfVersion = await getEspIdfFromCMake(currentEnvVars["IDF_PATH"]);
   statusBarItems["currentIdfVersion"] = createStatusBarItem(
     `$(${
       commandDictionary[CommandKeys.SelectCurrentIdfVersion].iconId
-    }) ESP-IDF v${currentIdfVersion.version}`,
+    }) ESP-IDF v${idfVersion}`,
     commandDictionary[CommandKeys.SelectCurrentIdfVersion].tooltip,
     CommandKeys.SelectCurrentIdfVersion,
     103,
@@ -278,7 +322,7 @@ export function updateHintsStatusBarItem(hasHints: boolean) {
     statusBarItems["hints"].tooltip = l10n.t(
       "ESP-IDF: Hints available. Click to view."
     );
-    statusBarItems["hints"].backgroundColor = new ThemeIcon(
+    statusBarItems["hints"].backgroundColor = new ThemeColor(
       "statusBarItem.warningBackground"
     );
     statusBarItems["hints"].show();

@@ -21,11 +21,13 @@ import { join } from "path";
 import * as vscode from "vscode";
 import * as idfConf from "../idfConfiguration";
 import { FlashModel } from "./flashModel";
-import { appendIdfAndToolsToPath, canAccessFile } from "../utils";
+import { canAccessFile } from "../utils";
 import { TaskManager } from "../taskManager";
 import { getDfuList, selectDfuDevice, selectedDFUAdapterId } from "./dfu";
 import { ESP } from "../config";
 import { getVirtualEnvPythonPath } from "../pythonManager";
+import { OutputCapturingExecution } from "../taskManager/customExecution";
+import { configureEnvVariables } from "../common/prepareEnv";
 
 export class FlashTask {
   public static isFlashing: boolean;
@@ -58,10 +60,10 @@ export class FlashTask {
       workspaceUri
     ) as string;
     this.encryptPartitions = encryptPartitions;
-    this.idfPathDir = idfConf.readParameter(
-      "idf.espIdfPath",
-      this.currentWorkspace
-    ) as string;
+    const currentEnvVars = ESP.ProjectConfiguration.store.get<{
+      [key: string]: string;
+    }>(ESP.ProjectConfiguration.CURRENT_IDF_CONFIGURATION, {});
+    this.idfPathDir = currentEnvVars["IDF_PATH"];
   }
 
   public flashing(flag: boolean) {
@@ -84,7 +86,7 @@ export class FlashTask {
     }
   }
 
-  public async flash(flashType: ESP.FlashType, partitionToUse?: ESP.BuildType) {
+  public async flash(flashType: ESP.FlashType, partitionToUse?: ESP.BuildType, captureOutput?: boolean) {
     if (FlashTask.isFlashing) {
       throw new Error("ALREADY_FLASHING");
     }
@@ -93,7 +95,7 @@ export class FlashTask {
       "idf.notificationMode",
       this.currentWorkspace
     ) as string;
-    const pythonBinPath = await getVirtualEnvPythonPath(this.currentWorkspace);
+    const pythonBinPath = await getVirtualEnvPythonPath();
     const currentWorkspaceFolder = vscode.workspace.workspaceFolders.find(
       (w) => w.uri === this.currentWorkspace
     );
@@ -102,8 +104,8 @@ export class FlashTask {
       notificationMode === idfConf.NotificationMode.Output
         ? vscode.TaskRevealKind.Always
         : vscode.TaskRevealKind.Silent;
-    let flashExecution: vscode.ProcessExecution;
-    this.modifiedEnv = await appendIdfAndToolsToPath(this.currentWorkspace);
+    let flashExecution: OutputCapturingExecution | vscode.ProcessExecution;
+    this.modifiedEnv = await configureEnvVariables(this.currentWorkspace);
     this.processOptions = {
       cwd: this.buildDirPath,
       env: this.modifiedEnv,
@@ -111,32 +113,35 @@ export class FlashTask {
     switch (flashType) {
       case "UART":
         if (!partitionToUse) {
-          flashExecution = this._flashExecution(pythonBinPath);
+          flashExecution = this._flashExecution(pythonBinPath, captureOutput);
         } else {
           switch (partitionToUse) {
             case "app":
               flashExecution = this._partitionFlashExecution(
                 pythonBinPath,
-                "app"
+                "app",
+                captureOutput
               );
               break;
             case "bootloader":
               flashExecution = this._partitionFlashExecution(
                 pythonBinPath,
-                "bootloader"
+                "bootloader",
+                captureOutput
               );
               break;
             case "partition-table":
               flashExecution = this._partitionFlashExecution(
                 pythonBinPath,
-                "partitionTable"
+                "partitionTable",
+                captureOutput
               );
               break;
           }
         }
         break;
       case "DFU":
-        flashExecution = await this._dfuFlashing(pythonBinPath);
+        flashExecution = await this._dfuFlashing(pythonBinPath, captureOutput);
         break;
       default:
         break;
@@ -155,19 +160,28 @@ export class FlashTask {
       ["espIdf"],
       flashPresentationOptions
     );
+    return flashExecution;
   }
 
-  public _flashExecution(pythonBinPath: string) {
+  public _flashExecution(pythonBinPath: string, captureOutput?: boolean) {
     this.flashing(true);
     const flasherArgs = this.getFlasherArgs(this.flashScriptPath);
-    return new vscode.ProcessExecution(
-      pythonBinPath,
-      flasherArgs,
-      this.processOptions
-    );
+    if (captureOutput) {
+      return OutputCapturingExecution.create(
+        pythonBinPath,
+        flasherArgs,
+        this.processOptions
+      );
+    } else {
+      return new vscode.ProcessExecution(
+        pythonBinPath,
+        flasherArgs,
+        this.processOptions
+      );
+    }
   }
 
-  public async _dfuFlashing(pythonBinPath: string) {
+  public async _dfuFlashing(pythonBinPath: string, captureOutput?: boolean) {
     this.flashing(true);
     const listDfuDevices = (await getDfuList(
       this.currentWorkspace
@@ -191,23 +205,36 @@ export class FlashTask {
         join(this.buildDirPath, "dfu.bin"),
       ];
     }
-    return new vscode.ProcessExecution(cmd, args, this.processOptions);
+    if (captureOutput) {
+      return OutputCapturingExecution.create(cmd, args, this.processOptions);
+    } else {
+      return new vscode.ProcessExecution(cmd, args, this.processOptions);
+    }
   }
 
   public _partitionFlashExecution(
     pythonBinPath: string,
-    sectionToUse: "app" | "bootloader" | "partitionTable"
+    sectionToUse: "app" | "bootloader" | "partitionTable",
+    captureOutput?: boolean
   ) {
     this.flashing(true);
     const flasherArgs = this.getSingleBinFlasherArgs(
       this.flashScriptPath,
       sectionToUse
     );
-    return new vscode.ProcessExecution(
-      pythonBinPath,
-      flasherArgs,
-      this.processOptions
-    );
+    if (captureOutput) {
+      return OutputCapturingExecution.create(
+        pythonBinPath,
+        flasherArgs,
+        this.processOptions
+      );
+    } else {
+      return new vscode.ProcessExecution(
+        pythonBinPath,
+        flasherArgs,
+        this.processOptions
+      );
+    }
   }
 
   public getSingleBinFlasherArgs(

@@ -50,21 +50,17 @@ export enum CommandKeys {
   CustomTask = "espIdf.customTask",
   QemuServer = "espIdf.qemuCommand",
   OpenOCD = "espIdf.openOCDCommand",
+  OpenOcdAdapterStatusBar = "espIdf.openOcdAdapterStatusBar",
 }
 
 export enum AdvancedCommandKeys {
-  Setup = "espIdf.setup.start",
+  InstallManager = "espIdf.installManager",
   NewProject = "espIdf.newProject.start",
   Size = "espIdf.size",
   EraseFlash = "espIdf.eraseFlash",
   DoctorCommand = "espIdf.doctorCommand",
   GetADF = "espIdf.getEspAdf",
-  GetMDF = "espIdf.getEspMdf",
-  GetEspMatter = "espIdf.getEspMatter",
-  GetRainmaker = "espIdf.getEspRainmaker",
   ProjectConfEditor = "espIdf.projectConfigurationEditor",
-  InstallIdfPythonReqs = "espIdf.installPyReqs",
-  InstallMatterPythonReqs = "espIdf.installEspMatterPyReqs",
   CreateVscodeFolder = "espIdf.createVsCodeFolder",
   CreateDevContainerFolder = "espIdf.createDevContainer",
   CreateIdfComponent = "espIdf.createNewComponent",
@@ -80,10 +76,10 @@ export function createAdvancedCommandDictionary(): Record<
   IDFCommandDescription
 > {
   return {
-    [AdvancedCommandKeys.Setup]: {
+    [AdvancedCommandKeys.InstallManager]: {
       checkboxState: undefined,
-      iconId: "extensions",
-      tooltip: l10n.t("Configure ESP-IDF Extension"),
+      iconId: "link-external",
+      tooltip: l10n.t("Open ESP-IDF Installation Manager"),
     },
     [AdvancedCommandKeys.NewProject]: {
       checkboxState: undefined,
@@ -110,35 +106,10 @@ export function createAdvancedCommandDictionary(): Record<
       iconId: "extensions",
       tooltip: l10n.t("Install ESP-ADF"),
     },
-    [AdvancedCommandKeys.GetMDF]: {
-      checkboxState: undefined,
-      iconId: "extensions",
-      tooltip: l10n.t("Install ESP-MDF"),
-    },
-    [AdvancedCommandKeys.GetEspMatter]: {
-      checkboxState: undefined,
-      iconId: "extensions",
-      tooltip: l10n.t("Install ESP-Matter"),
-    },
-    [AdvancedCommandKeys.GetRainmaker]: {
-      checkboxState: undefined,
-      iconId: "extensions",
-      tooltip: l10n.t("Install ESP-Rainmaker"),
-    },
     [AdvancedCommandKeys.ProjectConfEditor]: {
       checkboxState: undefined,
       iconId: "project",
       tooltip: l10n.t("Project Configuration editor"),
-    },
-    [AdvancedCommandKeys.InstallIdfPythonReqs]: {
-      checkboxState: undefined,
-      iconId: "extensions",
-      tooltip: l10n.t("Install Extension Python Requirements"),
-    },
-    [AdvancedCommandKeys.InstallMatterPythonReqs]: {
-      checkboxState: undefined,
-      iconId: "extensions",
-      tooltip: l10n.t("Install ESP-Matter Python Requirements"),
     },
     [AdvancedCommandKeys.CreateVscodeFolder]: {
       checkboxState: undefined,
@@ -299,6 +270,14 @@ export function createCommandDictionary(): Record<
       ),
       iconId: "server-environment",
       tooltip: l10n.t("OpenOCD Server"),
+    },
+    [CommandKeys.OpenOcdAdapterStatusBar]: {
+      checkboxState: ESP.GlobalConfiguration.store.get<TreeItemCheckboxState>(
+        CommandKeys.OpenOcdAdapterStatusBar,
+        TreeItemCheckboxState.Unchecked
+      ),
+      iconId: "link",
+      tooltip: l10n.t("OpenOCD Adaptor (serial & location)"),
     },
     [CommandKeys.Debug]: {
       checkboxState: ESP.GlobalConfiguration.store.get<TreeItemCheckboxState>(

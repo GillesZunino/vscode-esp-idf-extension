@@ -21,12 +21,13 @@
     堆跟踪<additionalfeatures/heap-tracing>
     提示查看器<additionalfeatures/hints-viewer>
     安装 ESP-IDF 组件<additionalfeatures/install-esp-components>
+    语言工具<additionalfeatures/language-tools>
     NVS 分区表编辑器<additionalfeatures/nvs-partition-editor>
     分区表编辑器<additionalfeatures/partition-table-editor>
     项目配置编辑器<additionalfeatures/project-configuration>
     QEMU 模拟器<additionalfeatures/qemu>
     ESP RainMaker<additionalfeatures/rainmaker>
-    单元测试<additionalfeatures/unit-testing>
+    使用 Unity 框架进行单元测试<additionalfeatures/unit-testing>
     处理多个项目<additionalfeatures/multiple-projects>
     在 Windows 系统中使用 WSL<additionalfeatures/wsl>
     Web Extension<additionalfeatures/web-extension>

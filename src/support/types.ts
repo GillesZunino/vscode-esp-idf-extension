@@ -16,28 +16,22 @@
  * limitations under the License.
  */
 
+import { IdfSetup } from "../eim/types";
 import { ProjectConfElement } from "../project-conf/projectConfiguration";
 
 export class ConfigurationAccess {
   espIdfPath: boolean;
   espAdfPath: boolean;
-  espMdfPath: boolean;
-  espMatterPath: boolean;
-  espHomeKitPath: boolean;
   espIdfToolsPaths: { [key: string]: boolean };
   pythonBinPath: boolean;
   cmakeInEnv: boolean;
   ninjaInEnv: boolean;
   toolsPath: boolean;
-  sysPythonBinPath: boolean;
 }
 export class Configuration {
   systemEnvPath: string;
   espIdfPath: string;
   espAdfPath: string;
-  espMdfPath: string;
-  espMatterPath: string;
-  espHomeKitPath: string;
   customExtraPaths: string;
   flashType: string;
   flashPartitionToUse: string;
@@ -47,7 +41,6 @@ export class Configuration {
   pythonBinPath: string;
   pythonPackages: pyPkgVersion[];
   serialPort: string;
-  sysPythonBinPath: string;
   openOcdLaunchArgs: string[];
   openOcdConfigs: string[];
   openOCDDebugLevel: string;
@@ -61,12 +54,8 @@ export class ConfigurationSpacesValidation {
   systemEnvPath: boolean;
   espIdfPath: boolean;
   espAdfPath: boolean;
-  espMdfPath: boolean;
-  espMatterPath: boolean;
-  espHomeKitPath: boolean;
   customExtraPaths: { [key: string]: boolean };
   pythonBinPath: boolean;
-  sysPythonBinPath: boolean;
   toolsPath: boolean;
   gitPath: boolean;
 }
@@ -95,7 +84,7 @@ export class idfToolResult {
   actual: string;
   doesToolExist: boolean;
   expected: string;
-  id: string;
+  name: string;
 }
 
 export class execResult {
@@ -103,10 +92,15 @@ export class execResult {
   result: string;
 }
 
+export interface ExtendedIdfSetup extends IdfSetup {
+  reason: string;
+}
+
 export class reportObj {
   configurationSettings: Configuration;
   configurationAccess: ConfigurationAccess;
   configurationSpacesValidation: ConfigurationSpacesValidation;
+  espIdfSetups: ExtendedIdfSetup[];
   espIdfToolsVersions: idfToolResult[];
   espIdfVersion: execResult;
   gitVersion: execResult;
@@ -118,7 +112,6 @@ export class reportObj {
   pythonVersion: execResult;
   pythonPackages: execResult;
   idfCheckRequirements: execResult;
-  debugAdapterRequirements: execResult;
   formatedOutput: string;
   selectedProjectConfiguration: string;
   systemInfo: SystemInfo;

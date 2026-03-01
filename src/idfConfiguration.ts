@@ -345,13 +345,31 @@ export function resolveVariables(
       if (Object.keys(customExtraVars).indexOf(envVariable) !== -1) {
         return customExtraVars[envVariable];
       }
+      const currentEnvVars = ESP.ProjectConfiguration.store.get<{
+        [key: string]: string;
+      }>(ESP.ProjectConfiguration.CURRENT_IDF_CONFIGURATION);
+      if (Object.keys(currentEnvVars).indexOf(envVariable) !== -1) {
+        return currentEnvVars[envVariable];
+      }
       if (Object.keys(process.env).indexOf(envVariable) === -1) {
         return "";
       }
       return process.env[envVariable];
     }
     if (scope && match.indexOf("workspaceFolder") > 0) {
-      return scope instanceof vscode.Uri ? scope.fsPath : scope.uri.fsPath;
+      let folderFsPath: string | undefined;
+      if ("fsPath" in scope && typeof scope.fsPath === "string") {
+        folderFsPath = scope.fsPath;
+      } else if (
+        "uri" in scope &&
+        scope.uri &&
+        typeof scope.uri.fsPath === "string"
+      ) {
+        folderFsPath = scope.uri.fsPath;
+      } else {
+        folderFsPath = match;
+      }
+      return folderFsPath;
     }
     if (match.indexOf("execPath") > 0) {
       return process.execPath;

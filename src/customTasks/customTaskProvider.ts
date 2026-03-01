@@ -28,7 +28,8 @@ import {
 } from "vscode";
 import { NotificationMode, readParameter } from "../idfConfiguration";
 import { TaskManager } from "../taskManager";
-import { appendIdfAndToolsToPath } from "../utils";
+import { ShellOutputCapturingExecution } from "../taskManager/customExecution";
+import { configureEnvVariables } from "../common/prepareEnv";
 
 export enum CustomTaskType {
   Custom = "custom",
@@ -49,12 +50,17 @@ export class CustomTask {
 
   public getProcessExecution(
     cmdString: string,
-    options: ShellExecutionOptions
-  ) {
-    return new ShellExecution(`${cmdString}`, options);
+    options: ShellExecutionOptions,
+    captureOutput?: boolean
+  ): ShellOutputCapturingExecution | ShellExecution {
+    if (captureOutput) {
+      return new ShellOutputCapturingExecution(cmdString, options);
+    } else {
+      return new ShellExecution(cmdString, options);
+    }
   }
 
-  public async addCustomTask(taskType: CustomTaskType) {
+  public async addCustomTask(taskType: CustomTaskType, captureOutput?: boolean) {
     let command: string;
     let taskName: string;
     switch (taskType) {
@@ -83,7 +89,7 @@ export class CustomTask {
     if (!command) {
       return;
     }
-    const modifiedEnv = await appendIdfAndToolsToPath(this.currentWorkspace);
+    const modifiedEnv = await configureEnvVariables(this.currentWorkspace);
     const options: ShellExecutionOptions = {
       cwd: this.currentWorkspace.fsPath,
       env: modifiedEnv,
@@ -111,7 +117,7 @@ export class CustomTask {
       notificationMode === NotificationMode.Output
         ? TaskRevealKind.Always
         : TaskRevealKind.Silent;
-    const customExecution = this.getProcessExecution(command, options);
+    const customExecution = this.getProcessExecution(command, options, captureOutput);
     const customTaskPresentationOptions = {
       reveal: showTaskOutput,
       showReuseMessage: false,
@@ -133,6 +139,7 @@ export class CustomTask {
       ["espIdf", "espIdfLd"],
       customTaskPresentationOptions
     );
+    return customExecution;
   }
 
   public async runTasks(taskType: CustomTaskType) {

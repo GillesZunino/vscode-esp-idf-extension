@@ -26,16 +26,14 @@ All commands start with ``ESP-IDF:``.
      - Clear the eFuse Summary tree from ESP Explorer EFUSEEXPLORER.
    * - Clear ESP-IDF Search Results
      - Clear results from ESP Explorer Documentation Search Results.
-   * - Clear Saved ESP-IDF Setups
-     - Clear existing ESP-IDF setups saved by the extension.
-   * - Configure ESP-IDF Extension
-     - Open a window with a setup wizard to install ESP-IDF, IDF Tools and Python virtual environment.
    * - Configure Project SDKConfig for Coverage
      - Set required values in your project SDKConfig to enable code coverage analysis.
    * - Configure project for ESP-Clang
      - Configure the current ESP-IDF project to use esp-clang as toolchain to use and configure LLVM Clang extension in settings.json.
    * - Create New ESP-IDF Component
      - Create a new component in the current directory based on ESP-IDF component template.
+   * - Create New Empty Project
+     - Ask for the new project name, choose the directory to create the project, and show a notification to open the newly created project.
    * - Dispose of Current SDK Configuration Editor Server Process
      - If you already executed the SDK Configuration editor, a cache process will remain in the background for faster reopening. This command will dispose of such cache process.
    * - Doctor Command
@@ -65,17 +63,7 @@ All commands start with ``ESP-IDF:``.
    * - Import ESP-IDF Project
      - Import an existing ESP-IDF project, add .vscode and .devcontainer files to a new location, and optionally rename the project.
    * - Install ESP-ADF
-     - Clone ESP-ADF inside the selected directory and set **idf.espAdfPath** (**idf.espAdfPathWin** in Windows) configuration setting.
-   * - Install ESP-IDF Python Packages (DEPRECATION NOTICE)
-     - Install extension Python packages. This command is deprecated and will be removed soon.
-   * - Install ESP-MDF
-     - Clone ESP-MDF inside the selected directory and set **idf.espMdfPath** (**idf.espMdfPathWin** in Windows) configuration setting.
-   * - Install ESP-Matter
-     - Clone ESP-Matter and set **idf.espMatterPath**. ESP-Matter is not supported on Windows.
-   * - Install ESP-Rainmaker
-     - Clone ESP-Rainmaker and set **idf.espRainmakerPath** (**idf.espRainmakerPathWin** in Windows) configuration setting.
-   * - Install ESP-HomeKit-SDK
-     - Clone ESP-HomeKit-SDK inside the selected directory and set **idf.espHomeKitSdkPath** (**idf.espHomeKitSdkPathWin** in Windows) configuration setting.
+     - Clone ESP-ADF inside the selected directory and set **idf.customExtraVars["ADF_PATH"]** configuration setting.
    * - Launch IDF Monitor for Core Dump Mode/GDB Stub Mode
      - Launch ESP-IDF Monitor with WebSocket capabilities. If you have configured the panic handler to gdbstub or core dump, the monitor will launch a post-mortem debug session of the chip.
    * - Launch QEMU Server
@@ -92,6 +80,10 @@ All commands start with ``ESP-IDF:``.
      - Launch UI to create a CSV file for `ESP-IDF Non-Volatile Storage Library <https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/storage/nvs_flash.html>`_.
    * - Open ESP-IDF Terminal
      - Open a terminal with IDF_PATH and Python virtual environment activated.
+   * - OpenOCD Adaptor (serial & location)
+     - Toggle the status bar item that shows the OpenOCD adapter serial number (S) and USB adapter location (L), useful to verify which adapter will be used when multiple devices are connected.
+   * - Open ESP-IDF Install Manager
+     - Open the ESP-IDF Install Manager to install and manage ESP-IDF versions and tools.
    * - Partition Table Editor
      - Launch UI to manage custom partition table as described in `ESP-IDF Partition Tables <https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/partition-tables.html>`_.
    * - Pick a Workspace Folder
@@ -122,8 +114,6 @@ All commands start with ``ESP-IDF:``.
      - This extension shows many notifications and output in the Output window **ESP-IDF**. This command allows you to set if to show notifications only, output only, both notifications and output, or neither.
    * - Set Espressif Device Target
      - This will set the target for the current project (IDF_TARGET). Similar to **idf.py set-target**. For example, if you want to use ESP32 or ESP32-C3, you need to execute this command.
-   * - Set ESP-MATTER Device Path (ESP_MATTER_DEVICE_PATH)
-     - The **ESP-IDF: Set ESP-MATTER Device Path (ESP_MATTER_DEVICE_PATH)** is used to define the device path for ESP-Matter. ESP-Matter is not supported in Windows.
    * - Show Ninja Build Summary
      - Execute the Chromium ninja-build-summary.py.
    * - Size Analysis of the Binaries
@@ -134,5 +124,7 @@ All commands start with ``ESP-IDF:``.
      - Flash the unit test application for the current project to the connected device. More information can be found in :ref:`Unit Testing Documentation <unit testing>`.
    * - Unit Test: Build and Flash Unit Test App for Testing
      - Copy the unit test app in the current project, build the current project and flash the unit test application to the connected device. More information can be found in :ref:`Unit Testing Documentation <unit testing>`.
-   * - Unit Test: Install ESP-IDF Pytest Requirements
-     - Install the ESP-IDF Pytest requirement packages to be able to execute ESP-IDF unit tests. More information can be found in :ref:`Unit Testing Documentation <unit testing>`.
+   * - Load Image from LVGL C File
+     - Load and display an image from a LVGL C file containing lv_image_dsc_t structure. This command allows you to view LVGL images without requiring a debug session.
+   * - Open Image Viewer
+     - Open the Image Viewer panel to display images from debug variables or LVGL C files. This panel provides tools for viewing and analyzing image data in various formats.

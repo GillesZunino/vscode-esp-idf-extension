@@ -28,7 +28,8 @@ import { useNewProjectStore } from "./store";
 import ProjectCreated from "./ProjectCreated.vue";
 
 const routes = [
-  { path: "/", component: Configure },
+  { path: "/", component: Templates },
+  { path: "/configure", component: Configure },
   { path: "/templates", component: Templates },
   { path: "/created", component: ProjectCreated },
 ];
@@ -81,6 +82,9 @@ window.addEventListener("message", (event) => {
       if (msg.idfTargets) {
         store.idfTargets = msg.idfTargets;
         store.selectedIdfTarget = msg.idfTargets[0];
+      }
+      if (msg.pathSep) {
+        store.pathSep = msg.pathSep;
       }
       break;
     case "setContainerDirectory":

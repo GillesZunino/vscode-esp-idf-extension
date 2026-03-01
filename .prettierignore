@@ -1,5 +1,4 @@
 #files
-idf_versions.txt
 *.log
 .vscodeignore
 .style.yapf
@@ -26,7 +25,6 @@ node_modules/
 templates/
 testFiles/
 media/
-esp_debug_adapter/
 external/
 test-resources/
 docs_espressif/

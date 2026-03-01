@@ -22,8 +22,8 @@ import * as utils from "../utils";
 import { IExample } from "../examples/Example";
 import { setCurrentSettingsInTemplate } from "./utils";
 import { NotificationMode, readParameter } from "../idfConfiguration";
-import { IdfSetup } from "../views/setup/types";
 import { createClangdFile } from "../clang";
+import { IdfSetup } from "../eim/types";
 
 export class NewProjectPanel {
   public static currentPanel: NewProjectPanel | undefined;
@@ -75,20 +75,6 @@ export class NewProjectPanel {
     if (newProjectArgs.espIdfSetup.idfPath) {
       localResourceRoots.push(
         vscode.Uri.file(newProjectArgs.espIdfSetup.idfPath)
-      );
-    }
-    if (newProjectArgs.espMdfPath) {
-      localResourceRoots.push(vscode.Uri.file(newProjectArgs.espMdfPath));
-    }
-    if (newProjectArgs.espMatterPath) {
-      localResourceRoots.push(vscode.Uri.file(newProjectArgs.espMatterPath));
-    }
-    if (newProjectArgs.espRainmakerPath) {
-      localResourceRoots.push(vscode.Uri.file(newProjectArgs.espRainmakerPath));
-    }
-    if (newProjectArgs.espHomeKitSdkPath) {
-      localResourceRoots.push(
-        vscode.Uri.file(newProjectArgs.espHomeKitSdkPath)
       );
     }
     this.panel = vscode.window.createWebviewPanel(
@@ -195,6 +181,7 @@ export class NewProjectPanel {
               serialPortList: newProjectArgs.serialPortList,
               openOcdConfigFiles: defConfigFiles,
               templates: newProjectArgs.templates,
+              pathSep: path.sep,
             });
           }
           break;
@@ -283,7 +270,7 @@ export class NewProjectPanel {
             const boilerplatePath = path.join(
               this.extensionPath,
               "templates",
-              "boilerplate"
+              "template-app"
             );
             await utils.copyFromSrcProject(
               boilerplatePath,
@@ -304,8 +291,8 @@ export class NewProjectPanel {
             idfSetup,
             port,
             selectedIdfTarget,
-            openOcdConfigs,
-            vscode.Uri.file(newProjectPath)
+            vscode.Uri.file(newProjectPath),
+            openOcdConfigs
           );
           await createClangdFile(vscode.Uri.file(newProjectPath));
           await writeJSON(settingsJsonPath, settingsJson, {

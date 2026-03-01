@@ -29,18 +29,35 @@ import {
 } from "../workspaceConfig";
 import { IdfSizeTask } from "../espIdf/size/idfSizeTask";
 import { CustomTask, CustomTaskType } from "../customTasks/customTaskProvider";
-import { readParameter, readSerialPort } from "../idfConfiguration";
+import { readParameter } from "../idfConfiguration";
 import { ESP } from "../config";
 import { createFlashModel } from "../flash/flashModelBuilder";
 import { OutputChannel } from "../logger/outputChannel";
+import {
+  CustomExecutionTaskResult,
+  OutputCapturingExecution,
+  ShellOutputCapturingExecution,
+} from "../taskManager/customExecution";
 
-export async function buildCommand(
+/**
+ * Build the project with the given parameters.
+ *
+ * This function is used to build the project with the given parameters.
+ * It will build the project, run the size task, and flash the project if the flash type is set.
+ *
+ * @param workspace - The workspace folder URI
+ * @param cancelToken - The cancellation token
+ * @param flashType - The flash type
+ * @param buildType - The build type
+ * @returns true if the build is successful, false otherwise
+ */
+export async function buildCommandMain(
   workspace: vscode.Uri,
   cancelToken: vscode.CancellationToken,
   flashType: ESP.FlashType,
-  buildType?: ESP.BuildType
-) {
-  let continueFlag = true;
+  buildType?: ESP.BuildType,
+  captureOutput?: boolean
+): Promise<CustomExecutionTaskResult> {
   const buildTask = new BuildTask(workspace);
   const customTask = new CustomTask(workspace);
   if (BuildTask.isBuilding || FlashTask.isFlashing) {
@@ -52,76 +69,136 @@ export async function buildCommand(
       new Error("One_Task_At_A_Time"),
       "buildCmd buildCommand"
     );
-    return;
+    return { continueFlag: false, executions: [] };
   }
   cancelToken.onCancellationRequested(() => {
     TaskManager.cancelTasks();
     TaskManager.disposeListeners();
     buildTask.building(false);
+    return { continueFlag: false, executions: [] };
   });
-  try {
-    await customTask.addCustomTask(CustomTaskType.PreBuild);
-    await buildTask.build(buildType);
-    await TaskManager.runTasks();
-    const enableSizeTask = (await readParameter(
-      "idf.enableSizeTaskAfterBuildTask",
-      workspace
-    )) as boolean;
-    if (enableSizeTask && typeof buildType === "undefined") {
-      const sizeTask = new IdfSizeTask(workspace);
-      await sizeTask.getSizeInfo();
-    }
-    await customTask.addCustomTask(CustomTaskType.PostBuild);
-    await TaskManager.runTasks();
-    if (flashType === ESP.FlashType.DFU) {
-      const buildPath = readParameter("idf.buildPath", workspace) as string;
-      if (!(await pathExists(join(buildPath, "flasher_args.json")))) {
-        return Logger.warnNotify(
-          "flasher_args.json file is missing from the build directory, can't proceed, please build properly!"
-        );
-      }
-      const adapterTargetName = await getIdfTargetFromSdkconfig(workspace);
-      if (
-        adapterTargetName &&
-        adapterTargetName !== "esp32s2" &&
-        adapterTargetName !== "esp32s3"
-      ) {
-        return Logger.warnNotify(
-          `The selected device target "${adapterTargetName}" is not compatible for DFU, as a result the DFU.bin was not created.`
-        );
-      } else {
-        await buildTask.buildDfu();
-        await TaskManager.runTasks();
-      }
-    }
-    if (!cancelToken.isCancellationRequested) {
-      updateIdfComponentsTree(workspace);
-      Logger.infoNotify("Build Successful");
-      const flashCmd = await buildFinishFlashCmd(workspace);
-      OutputChannel.appendLine(flashCmd, "Build");
-      TaskManager.disposeListeners();
-    }
-  } catch (error) {
-    if (error.message === "ALREADY_BUILDING") {
-      return Logger.errorNotify(
-        "Already a build is running!",
-        error,
-        "buildCommand"
+  let preBuildExecution = await customTask.addCustomTask(
+    CustomTaskType.PreBuild,
+    captureOutput
+  );
+  let executions: (
+    | OutputCapturingExecution
+    | ShellOutputCapturingExecution
+    | vscode.ProcessExecution
+    | vscode.ShellExecution
+  )[] = [];
+  const [compileExecution, buildExecution] = await buildTask.build(
+    buildType,
+    captureOutput
+  );
+  executions.push(preBuildExecution, compileExecution, buildExecution);
+
+  if (flashType === ESP.FlashType.DFU) {
+    const buildPath = readParameter("idf.buildPath", workspace) as string;
+    if (!(await pathExists(join(buildPath, "flasher_args.json")))) {
+      Logger.warnNotify(
+        "flasher_args.json file is missing from the build directory, can't proceed, please build properly!"
       );
+      return { continueFlag: false, executions: [] };
     }
-    if (error.message === "BUILD_TERMINATED") {
-      return Logger.warnNotify(`Build is Terminated`);
+    const adapterTargetName = await getIdfTargetFromSdkconfig(workspace);
+    if (
+      adapterTargetName &&
+      adapterTargetName !== "esp32s2" &&
+      adapterTargetName !== "esp32s3"
+    ) {
+      Logger.warnNotify(
+        `The selected device target "${adapterTargetName}" is not compatible for DFU, as a result the DFU.bin was not created.`
+      );
+      return { continueFlag: false, executions: [] };
+    } else {
+      const dfuExecution = await buildTask.buildDfu(captureOutput);
+      executions.push(dfuExecution);
     }
-    Logger.errorNotify(
-      "Something went wrong while trying to build the project",
-      error,
-      "buildCommand",
-      undefined,
-      false
-    );
-    continueFlag = false;
+  }
+  const postBuildExecution = await customTask.addCustomTask(
+    CustomTaskType.PostBuild,
+    captureOutput
+  );
+  executions.push(postBuildExecution);
+  const buildResult = await TaskManager.runTasksWithBoolean();
+  const enableSizeTask = (await readParameter(
+    "idf.enableSizeTaskAfterBuildTask",
+    workspace
+  )) as boolean;
+  if (buildResult && enableSizeTask && typeof buildType === "undefined") {
+    const sizeTask = new IdfSizeTask(workspace);
+    let sizeInfoExecution = await sizeTask.getSizeInfo();
+    executions.push(sizeInfoExecution);
+  }
+  const sizeResult = await TaskManager.runTasksWithBoolean();
+  if (!cancelToken.isCancellationRequested) {
+    updateIdfComponentsTree(workspace);
+    Logger.infoNotify("Build Successful");
+    const flashCmd = await buildFinishFlashCmd(workspace);
+    OutputChannel.appendLine(flashCmd, "Build");
+    TaskManager.disposeListeners();
   }
   buildTask.building(false);
+
+  return {
+    continueFlag: buildResult && sizeResult,
+    executions,
+  };
+}
+
+export async function buildCommand(
+  workspace: vscode.Uri,
+  cancelToken: vscode.CancellationToken,
+  flashType: ESP.FlashType,
+  buildType?: ESP.BuildType
+): Promise<boolean> {
+  let continueFlag = true;
+  try {
+    let buildCmdResults = await buildCommandMain(
+      workspace,
+      cancelToken,
+      flashType,
+      buildType
+    );
+    continueFlag = buildCmdResults.continueFlag;
+    if (!continueFlag) {
+      for (let i = 0; i < buildCmdResults.executions.length; i++) {
+        if (
+          buildCmdResults.executions[i] &&
+          "getOutput" in buildCmdResults.executions[i]
+        ) {
+          const executionOutput = await (buildCmdResults.executions[i] as
+            | OutputCapturingExecution
+            | ShellOutputCapturingExecution).getOutput();
+          if (
+            executionOutput &&
+            !executionOutput.success &&
+            executionOutput.stderr
+          ) {
+            throw executionOutput.stderr;
+          }
+        }
+      }
+    }
+  } catch (error) {
+    BuildTask.isBuilding = false;
+    if (error.message === "ALREADY_BUILDING") {
+      Logger.errorNotify("Already a build is running!", error, "buildCommand");
+    }
+    if (error.message === "BUILD_TERMINATED") {
+      Logger.warnNotify(`Build is Terminated`);
+    } else {
+      Logger.errorNotify(
+        "Something went wrong while trying to build the project",
+        error,
+        "buildCommand",
+        undefined,
+        false
+      );
+    }
+    continueFlag = false;
+  }
   return continueFlag;
 }
 

@@ -24,7 +24,6 @@ import * as idfConf from "../../idfConfiguration";
 import { Logger } from "../../logger/logger";
 import { OutputChannel } from "../../logger/outputChannel";
 import {
-  appendIdfAndToolsToPath,
   delConfigFile,
   getSDKConfigFilePath,
   isStringNotEmpty,
@@ -33,6 +32,8 @@ import { KconfigMenuLoader } from "./kconfigMenuLoader";
 import { Menu, menuType } from "./Menu";
 import { MenuConfigPanel } from "./MenuconfigPanel";
 import { getVirtualEnvPythonPath } from "../../pythonManager";
+import { configureEnvVariables } from "../../common/prepareEnv";
+import { ESP } from "../../config";
 
 export class ConfserverProcess {
   public static async initWithProgress(
@@ -71,8 +72,8 @@ export class ConfserverProcess {
 
   public static async init(workspaceFolder: vscode.Uri, extensionPath: string) {
     return new Promise(async (resolve) => {
-      const pythonBinPath = await getVirtualEnvPythonPath(workspaceFolder);
-      const modifiedEnv = await appendIdfAndToolsToPath(workspaceFolder);
+      const pythonBinPath = await getVirtualEnvPythonPath();
+      const modifiedEnv = await configureEnvVariables(workspaceFolder);
       if (!ConfserverProcess.instance) {
         const configFile = await getSDKConfigFilePath(workspaceFolder);
         ConfserverProcess.instance = new ConfserverProcess(
@@ -136,6 +137,16 @@ export class ConfserverProcess {
     ConfserverProcess.instance.kconfigsMenus = [];
     ConfserverProcess.instance.kconfigsMenus = newKconfigMenus;
     return ConfserverProcess.instance.kconfigsMenus;
+  }
+
+  public static resetElementById(id: string) {
+    let resetValueRequest = `{"version": 3, "reset": [ "${id}" ]}\n`;
+    ConfserverProcess.sendUpdatedValue(resetValueRequest);
+  }
+
+  public static resetElementChildren(children: string[]) {
+    let resetValueRequest = `{"version": 3, "reset": [ "${children.join("\", \"")}" ]}\n`;
+    ConfserverProcess.sendUpdatedValue(resetValueRequest);
   }
 
   public static setUpdatedValue(updatedValue: Menu) {
@@ -207,12 +218,13 @@ export class ConfserverProcess {
     ConfserverProcess.instance.areValuesSaved = true;
     const currWorkspace = ConfserverProcess.instance.workspaceFolder;
     await delConfigFile(currWorkspace);
-    const guiconfigEspPath =
-      idfConf.readParameter("idf.espIdfPath", currWorkspace) ||
-      process.env.IDF_PATH;
+    const currentEnvVars = ESP.ProjectConfiguration.store.get<{
+      [key: string]: string;
+    }>(ESP.ProjectConfiguration.CURRENT_IDF_CONFIGURATION, {});
+    const guiconfigEspPath = currentEnvVars["IDF_PATH"];
     const idfPyPath = path.join(guiconfigEspPath, "tools", "idf.py");
-    const modifiedEnv = await appendIdfAndToolsToPath(currWorkspace);
-    const pythonBinPath = await getVirtualEnvPythonPath(currWorkspace);
+    const modifiedEnv = await configureEnvVariables(currWorkspace);
+    const pythonBinPath = await getVirtualEnvPythonPath();
     const enableCCache = idfConf.readParameter(
       "idf.enableCCache",
       currWorkspace
@@ -223,14 +235,14 @@ export class ConfserverProcess {
     }
     reconfigureArgs.push("-C", currWorkspace.fsPath);
     const sdkconfigDefaults =
-      (idfConf.readParameter("idf.sdkconfigDefaults") as string[]) || [];
-
+    (idfConf.readParameter("idf.sdkconfigDefaults") as string[]) || [];
+    
     if (reconfigureArgs.indexOf("SDKCONFIG") === -1) {
       reconfigureArgs.push(
         `-DSDKCONFIG='${ConfserverProcess.instance.configFile}'`
       );
     }
-
+    
     if (
       reconfigureArgs.indexOf("SDKCONFIG_DEFAULTS") === -1 &&
       sdkconfigDefaults &&
@@ -241,6 +253,8 @@ export class ConfserverProcess {
       );
     }
     reconfigureArgs.push("reconfigure");
+    await delConfigFile(currWorkspace);
+    
     const getSdkconfigProcess = spawn(pythonBinPath, reconfigureArgs, {
       env: modifiedEnv,
     });
@@ -294,6 +308,7 @@ export class ConfserverProcess {
       MenuConfigPanel.currentPanel.dispose();
     }
   }
+  public static confserverVersion: number = 2;
 
   private static instance: ConfserverProcess;
   private static progress: vscode.Progress<{
@@ -329,9 +344,10 @@ export class ConfserverProcess {
     this.workspaceFolder = workspaceFolder;
     this.extensionPath = extensionPath;
     this.emitter = new EventEmitter();
-    this.espIdfPath =
-      idfConf.readParameter("idf.espIdfPath", workspaceFolder).toString() ||
-      process.env.IDF_PATH;
+    const currentEnvVars = ESP.ProjectConfiguration.store.get<{
+      [key: string]: string;
+    }>(ESP.ProjectConfiguration.CURRENT_IDF_CONFIGURATION, {});
+    this.espIdfPath = currentEnvVars["IDF_PATH"];
     modifiedEnv.PYTHONUNBUFFERED = "0";
     this.configFile = configFile;
     const idfPath = path.join(this.espIdfPath, "tools", "idf.py");
@@ -406,6 +422,10 @@ export class ConfserverProcess {
     for (const config of configObjects) {
       const resConfig = KconfigMenuLoader.updateValues(config, jsonValues);
       this.kconfigsMenus.push(resConfig);
+    }
+
+    if (jsonValues && jsonValues.version) {
+      ConfserverProcess.confserverVersion = jsonValues.version;
     }
 
     MenuConfigPanel.createOrShow(

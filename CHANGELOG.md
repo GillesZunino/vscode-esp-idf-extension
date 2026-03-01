@@ -8,6 +8,87 @@
 
 All notable changes to the "Espressif IDF" extension will be documented in this file.
 
+## [2.0.2](https://github.com/espressif/vscode-esp-idf-extension/releases/tag/v2.0.2)
+
+## Features and enhancements
+
+**Replace how ESP-IDF and ESP-IDF Tools is installed and configured in the extension.** The `ESP-IDF: Configure ESP-IDF extension` and extension settings such as `idf.espIdfPath`and `idf.toolsPath` are removed in favor of using our new [Espressif Install Manager (EIM)](https://docs.espressif.com/projects/idf-im-ui/en/latest/). While old ESP-IDF setup should still work to ease the transition, new ESP-IDF setup are expected to use EIM.
+See the new [Install documentation](https://docs.espressif.com/projects/vscode-esp-idf-extension/en/latest/installation.html)
+
+- [EIM integration and removal of extension settings such as idf.espIdfPath and idf.toolsPath in favor of environment variables saved as extension global store state](https://github.com/espressif/vscode-esp-idf-extension/pull/1704)
+- [Show templates before configuration in New Project Wizard](https://github.com/espressif/vscode-esp-idf-extension/pull/1757)
+- [Debug image viewer and also view C image array from files](https://github.com/espressif/vscode-esp-idf-extension/pull/1644) You can configure for OpenCV, LVGL and any custom data types as long as you provide a image C UInt8Array and size length.
+- [Remove old debug adapter, ESP-MDF, ESP-Matter and ESP-HomeKit](https://github.com/espressif/vscode-esp-idf-extension/pull/1693). Many of these framework are available in the ESP Component Registry. We are keeping ESP-ADF though.
+
+## Bug Fixes
+
+- [Show ESP-IDF versions in descending order](https://github.com/espressif/vscode-esp-idf-extension/pull/1704)
+
+## [1.11.1](https://github.com/espressif/vscode-esp-idf-extension/releases/tag/v1.11.1)
+
+## Bug Fixes
+
+- [Use Output Capture Execution only for Copilot Chat](https://github.com/espressif/vscode-esp-idf-extension/pull/1740)
+- [Post-build always hangs in v1.11.0](https://github.com/espressif/vscode-esp-idf-extension/pull/1733)
+- [Remove await for clang check in activation](https://github.com/espressif/vscode-esp-idf-extension/pull/1745)
+- [Prevent Set target from closing on focus lost](https://github.com/espressif/vscode-esp-idf-extension/pull/1748)
+- [Listen to restart event request to fix debug restart button](https://github.com/espressif/vscode-esp-idf-extension/pull/1747)
+- [Fix get project name in IDF Size task](https://github.com/espressif/vscode-esp-idf-extension/pull/1741)
+- [Add menuconfig visual separator for root sections](https://github.com/espressif/vscode-esp-idf-extension/pull/1752)
+
+## [1.11.0](https://github.com/espressif/vscode-esp-idf-extension/releases/tag/v1.11.0)
+
+## Features and enhancements
+
+- [Add DevKits support](https://github.com/espressif/vscode-esp-idf-extension/pull/1557)
+- [Add gitignore on project creation](https://github.com/espressif/vscode-esp-idf-extension/pull/1578)
+- [Pre-Release branch docs](https://github.com/espressif/vscode-esp-idf-extension/pull/1599)
+- [Modify event activation for file types](https://github.com/espressif/vscode-esp-idf-extension/pull/1568)
+- [Add classic menuconfig in Editor Panel](https://github.com/espressif/vscode-esp-idf-extension/pull/1598)
+- [Update webviews to VS Code UI Style](https://github.com/espressif/vscode-esp-idf-extension/pull/1554) This Pull Request removes the `ESP-IDF: Show Examples` command in favor of `ESP-IDF: New Project` since it provide a better customization.
+- [Allow customize Pytest glob pattern and unit test services](https://github.com/espressif/vscode-esp-idf-extension/pull/1593)
+- [CLang install prompt if not installed](https://github.com/espressif/vscode-esp-idf-extension/pull/1615)
+- [Allow additional files and directories for Full Clean commands](https://github.com/espressif/vscode-esp-idf-extension/pull/1613)
+- [Extend JTAG flash arguments as configuration setting](https://github.com/espressif/vscode-esp-idf-extension/pull/1583)
+- [Range support for downloads in Setup Wizard](https://github.com/espressif/vscode-esp-idf-extension/pull/1625)
+- [Check OpenOCD is running before debug is launched](https://github.com/espressif/vscode-esp-idf-extension/pull/1638)
+- [Add function names in Disassembly view](https://github.com/espressif/vscode-esp-idf-extension/pull/1634)
+- [OpenOCD Hints in Hints Viewer](https://github.com/espressif/vscode-esp-idf-extension/pull/1476)
+- [Add detect as default serial port option and use esptool.py to find serial port](https://github.com/espressif/vscode-esp-idf-extension/pull/1632)
+- [Pre-release campaign notification](https://github.com/espressif/vscode-esp-idf-extension/pull/1643)
+- [Prefer gdbinit prefix_map with fallback to prefix_map_gdbinit](https://github.com/espressif/vscode-esp-idf-extension/pull/1660)
+- [AI Integration with Copilot Chat using Language Tool API](https://github.com/espressif/vscode-esp-idf-extension/pull/1621)
+- [Allow customize PyPi Index URL in setup wizard](https://github.com/espressif/vscode-esp-idf-extension/pull/1692)
+- [Add create empty project command](https://github.com/espressif/vscode-esp-idf-extension/pull/1698)
+- [Add Unity Runner and Parser, Remove Pytest](https://github.com/espressif/vscode-esp-idf-extension/pull/1681)
+
+
+### Bug Fixes
+
+- [Update disassemble screenshot](https://github.com/espressif/vscode-esp-idf-extension/pull/1588)
+- [JTAG acronym issues](https://github.com/espressif/vscode-esp-idf-extension/pull/1604)
+- [Fix IDF_TARGET in multiple project configuration profiles](https://github.com/espressif/vscode-esp-idf-extension/pull/1579)
+- [Fix Partial encryption in encrypted flashing](https://github.com/espressif/vscode-esp-idf-extension/pull/1373)
+- [Close OpenOCD after JTAG flash end](https://github.com/espressif/vscode-esp-idf-extension/pull/1601)
+- [NodeJS 20 in CI](https://github.com/espressif/vscode-esp-idf-extension/pull/1611)
+- [Update build message](https://github.com/espressif/vscode-esp-idf-extension/pull/1603)
+- [Fix append git and pigweed to PATH instead of prepend](https://github.com/espressif/vscode-esp-idf-extension/pull/1614)
+- [Use latest in master in docs](https://github.com/espressif/vscode-esp-idf-extension/pull/1636)
+- [Fix fileExists check in Setup panel](https://github.com/espressif/vscode-esp-idf-extension/pull/1609) Thanks @jonsambro !
+- [Use mon program_esp instead of load for Symbol loading in debug](https://github.com/espressif/vscode-esp-idf-extension/pull/1556) Thanks @wormyrocks !
+- [Move Status bar items to the left](https://github.com/espressif/vscode-esp-idf-extension/pull/1626)
+- [Fix set target preview targets](https://github.com/espressif/vscode-esp-idf-extension/pull/1652)
+- [Fix App trace and Heap Trace](https://github.com/espressif/vscode-esp-idf-extension/pull/1656)
+- [Setup wizard  misleading idf.py not found message fix](https://github.com/espressif/vscode-esp-idf-extension/pull/1642)
+- [Clang and OpenOCD in PATH validation](https://github.com/espressif/vscode-esp-idf-extension/pull/1666)
+- [Telemetry issues bugfixes](https://github.com/espressif/vscode-esp-idf-extension/pull/1675)
+- [Fix openOCDRulesPath in addOpenOCDRules](https://github.com/espressif/vscode-esp-idf-extension/pull/1685)
+- [Add contrainsts in pytest install step](https://github.com/espressif/vscode-esp-idf-extension/pull/1686)
+- [Add double quoutes around gdbinit file path](https://github.com/espressif/vscode-esp-idf-extension/pull/1684)
+
+
+
+
 ## [1.10.1](https://github.com/espressif/vscode-esp-idf-extension/releases/tag/v1.10.1)
 
 ## Features and enhancements
@@ -516,7 +597,7 @@ All notable changes to the "Espressif IDF" extension will be documented in this 
 
 - [Send Ctrl + \] signal to exit idf monitor on flash tasks](https://github.com/espressif/vscode-esp-idf-extension/pull/382)
 - [Fix New project wizard require serial ports, add esp32s3 esp32c3, release vsix without extension dependencies](https://github.com/espressif/vscode-esp-idf-extension/pull/378)
-- [Check arduino component directory exists, remove old arduino-esp32 cloning branches](hhttps://github.com/espressif/vscode-esp-idf-extension/pull/370)
+- [Check arduino component directory exists, remove old arduino-esp32 cloning branches](https://github.com/espressif/vscode-esp-idf-extension/pull/370)
 - [Remove IDF Tools exact match on extension activation](https://github.com/espressif/vscode-esp-idf-extension/pull/359)
 - [Fix device configuration target setting](https://github.com/espressif/vscode-esp-idf-extension/pull/384)
 
@@ -669,13 +750,13 @@ All notable changes to the "Espressif IDF" extension will be documented in this 
 - SEO for vscode marketplace, add keywords and update description
 - Enhance and Fix some bugs with IDF Monitor terminal
 - Update Stale CI configs
-- Project structore enhancement, remove unused files in project
+- Project structure enhancement, remove unused files in project
 - Fix xtensa toolchain issue and getProjectName
 - Update OpenOCD script checks
 
 ## [0.2.0](https://github.com/espressif/vscode-esp-idf-extension/releases/tag/v0.2.0)
 
-### Release Debug Adapter for ESP-IDF withing VSCode
+### Release Debug Adapter for ESP-IDF within VSCode
 
 - Release Debug Adapter, this would enable debugging for an IDF project from within the VSCode IDE, please refer the guide for how to use the same
 - Add support for save before IDF build, this would save all your edited files and then trigger a build.

@@ -136,7 +136,7 @@ You can modify the configuration to suit your needs. Let's describe the configur
 - ``type``: The type of the debug configuration. It should be set to ``gdbtarget``.
 - ``program``: ELF file of your project build directory to execute the debug session. You can use the command ``${command:espIdf.getProjectName}`` to query the extension to find the current build directory project name.
 - ``initCommands``: GDB Commands to initialize GDB and target. The default value is ``["set remote hardware-watchpoint-limit IDF_TARGET_CPU_WATCHPOINT_NUM", "mon reset halt", "maintenance flush register-cache"]``.
-- ``initialBreakpoint``: When ``initCommands`` is not defined, this command will add to default ``initCommands`` a hardward breakpoint at the given function name. For example app_main, the default value, will add ``thb app_main`` to default initCommmands. If set to "", an empty string, no initial breakpoint will be set and if let undefined it will use the default thb app_main.
+- ``initialBreakpoint``: When ``initCommands`` is not defined, this command will add to default ``initCommands`` a hardware breakpoint at the given function name. For example app_main, the default value, will add ``thb app_main`` to default initCommmands. If set to "", an empty string, no initial breakpoint will be set and if let undefined it will use the default thb app_main.
 - ``gdb``: GDB executable to be used. By default "${command:espIdf.getToolchainGdb}" will query the extension to find the ESP-IDF toolchain GDB for the current IDF_TARGET of your esp-idf project (esp32, esp32c6, etc.).
 
 .. note::
@@ -144,6 +144,7 @@ You can modify the configuration to suit your needs. Let's describe the configur
 
 Some additional arguments you might use are:
 
+- ``buildFlashMonitor``: (Default: false). Build, flash and launch IDF Monitor before starting the debug session. Use ``idf.monitorDelay`` to set a delay, in milliseconds, after starting the monitor (Default is ``1000``).
 - ``debugPort``: (Default: 43476) The port to launch the Eclipse CDT GDB Debug Adapter server. If not specified, it will use the default value of 43476.
 - ``runOpenOCD``: (Default: true). Run extension OpenOCD Server.
 - ``verifyAppBinBeforeDebug``: (Default: false) Verify that current ESP-IDF project binary is the same as binary in chip.
@@ -337,10 +338,178 @@ ESP-IDF extension provides an ``ESP-IDF: Peripheral View`` tree in the ``Run and
 Post-mortem Debugging Use Cases
 -------------------------------
 
-You can start a monitor session to capture fatal error events with **ESP-IDF: Launch IDF Monitor for Core Dump Mode/GDB Stub Modec** command. If configured in your project's sdkconfig, it can trigger the start of a debug session for GDB remote protocol server (GDBStub) or `ESP-IDF Core Dump <https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/core_dump.html#core-dump>`_ when an error occurrs. For more information, see `Panic Handler <https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/fatal-errors.html#panic-handler>`_.
+You can start a monitor session to capture fatal error events with **ESP-IDF: Launch IDF Monitor for Core Dump Mode/GDB Stub Modec** command. If configured in your project's sdkconfig, it can trigger the start of a debug session for GDB remote protocol server (GDBStub) or `ESP-IDF Core Dump <https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/core_dump.html#core-dump>`_ when an error occurs. For more information, see `Panic Handler <https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/fatal-errors.html#panic-handler>`_.
 
 - **Core Dump** is configured when **Core Dump's Data Destination** is set to either ``UART`` or ``FLASH`` using the ``ESP-IDF: SDK Configuration Editor`` extension command or ``idf.py menuconfig`` in a terminal.
 - **GDB Stub** is configured when **Panic Handler Behaviour** is set to ``Invoke GDBStub`` using the ``ESP-IDF: SDK Configuration Editor`` extension command or ``idf.py menuconfig`` in a terminal.
+
+
+ESP-IDF: Image Viewer
+---------------------
+
+The ESP-IDF extension provides an **ESP-IDF: Image Viewer** feature that allows you to visualize binary image data from debug variables during a debugging session. This is particularly useful for applications that work with camera sensors, display buffers, LVGL graphics, OpenCV computer vision, or any raw image data.
+
+**Quick Access Methods:**
+
+1. **Right-click on variables in the debug session:**
+   - Right-click on any image-related variable (``lv_image_dsc_t``, ``cv::Mat``, ``png_image``, etc.) and select ``View Variable as Image``
+   - The Image Viewer automatically detects the variable type and extracts the appropriate image properties
+
+2. **Manual Image Viewer:**
+   - Go to ``View`` > ``Command Palette`` and enter ``ESP-IDF: Open Image Viewer``
+   - Enter the name of your image data variable and its size
+   - Select the appropriate image format and dimensions
+   - Click ``Load Image`` to visualize the data
+
+**Supported Image Formats:**
+
+The Image Viewer supports a comprehensive range of image formats:
+
+**RGB Formats:**
+- RGB565, RGB888, RGBA8888, ARGB8888, XRGB8888
+- BGR888, BGRA8888, ABGR8888, XBGR8888
+- RGB332, RGB444, RGB555, RGB666, RGB777
+- RGB101010, RGB121212, RGB161616
+
+**Other Formats:**
+- Grayscale (8-bit per pixel)
+- YUV420, YUV422, YUV444 (various YUV formats)
+
+**Built-in Support:**
+
+**LVGL Image Descriptor (lv_image_dsc_t):**
+- Automatically extracts format, dimensions, and data from LVGL structures
+- Supports all LVGL color formats with automatic mapping to display formats
+
+**OpenCV Mat (cv::Mat):**
+- Automatically extracts dimensions, format, and data from OpenCV Mat objects
+- Supports BGR888, BGRA8888, and Grayscale formats
+
+**Example Usage:**
+
+**LVGL Image Example:**
+
+.. code-block:: C
+
+    // LVGL image descriptor
+    lv_image_dsc_t my_image = {
+        .header = {
+            .cf = LV_COLOR_FORMAT_RGB888,  // Color format
+            .w = 320,                      // Width
+            .h = 240                       // Height
+        },
+        .data_size = 320 * 240 * 3,        // Data size in bytes
+        .data = image_data                 // Pointer to image data
+    };
+
+During debugging, right-click on ``my_image`` and select ``View Variable as Image``. The Image Viewer will automatically detect it as an LVGL image and extract the format, dimensions, and data.
+
+**OpenCV Mat Example:**
+
+.. code-block:: C
+
+    cv::Mat image(240, 320, CV_8UC3);  // 320x240 BGR888 image
+    // ... populate image data ...
+
+During debugging, right-click on ``image`` and select ``View Variable as Image``. The Image Viewer will automatically detect it as an OpenCV Mat and extract the dimensions, format, and data.
+
+**Manual Raw Data Example:**
+
+.. code-block:: C
+
+    uint8_t image_buffer[320 * 240 * 3];  // RGB888 format, 320x240 pixels
+    size_t image_size = sizeof(image_buffer);
+
+For manual usage:
+- Enter ``image_buffer`` as the variable name
+- Enter ``image_size`` or ``230400`` (320 * 240 * 3) as the size
+- Select ``RGB888`` format
+- Set width to ``320`` and height to ``240``
+
+**Custom Image Format Configuration:**
+
+You can extend the Image Viewer to support custom image formats by creating a JSON configuration file and setting the ``idf.imageViewerConfigs`` configuration option.
+
+**Example Custom Configuration:**
+
+.. code-block:: JSON
+
+    [
+      {
+        "name": "Custom Image Structure",
+        "typePattern": "my_image_t",
+        "width": {
+          "type": "string",
+          "isChild": true,
+          "value": "w"
+        },
+        "height": {
+          "type": "string",
+          "isChild": true,
+          "value": "h"
+        },
+        "format": {
+          "type": "number",
+          "isChild": false,
+          "value": "0x0E"
+        },
+        "dataAddress": {
+          "type": "string",
+          "isChild": true,
+          "value": "pixels"
+        },
+        "dataSize": {
+          "type": "formula",
+          "isChild": false,
+          "value": "$var.w * $var.h * 3"
+        },
+        "imageFormats": {
+          "14": "rgb888",
+          "15": "rgba8888"
+        }
+      }
+    ]
+
+**Configuration Options:**
+
+- **typePattern**: Regex pattern to match the GDB type of the selected variable when right-clicking "View Variable as Image" (e.g., ``"my_image_t"``, ``"lv_image_dsc_t"``, ``"cv::Mat|Mat"``)
+- **width/height**: Configuration for extracting image dimensions
+- **format**: Configuration for extracting image format
+- **dataAddress**: Configuration for extracting image data pointer
+- **dataSize**: Configuration for calculating image data size (supports formulas)
+- **imageFormats**: Mapping of numeric format values to display format strings
+
+**Field Configuration Details:**
+
+Each field (width, height, format, dataAddress, dataSize) has the following properties:
+
+- **type**: Specifies the data type of the field value:
+  - ``"string"``: The value is a string (field name or expression)
+  - ``"number"``: The value is a numeric constant (e.g., ``"0x0E"``, ``"14"``)
+  - ``"formula"``: The value is a mathematical formula (only for dataSize field)
+
+- **isChild**: Determines how the field value is interpreted:
+  - ``true``: The value represents a child field of the right-clicked variable (e.g., ``"header.w"``, ``"data"``)
+  - ``false``: The value is a direct expression or constant that can be evaluated by GDB
+
+- **value**: The actual field name, expression, or constant to use for extraction
+
+**Important Configuration Notes:**
+
+- **dataSize Formula**: When using formulas in the ``dataSize`` field, the string ``$var`` will be automatically replaced with the actual variable name when you right-click and select "View Variable as Image". For example, if your variable is named ``my_image`` and the formula is ``$var.w * $var.h * 3``, it will be evaluated as ``my_image.w * my_image.h * 3``. **Note**: The formula must be a valid GDB expression since it is calculated by GDB itself.
+
+- **Format Number Mapping**: The numeric keys in the ``imageFormats`` object must match the actual numeric values that the ``format`` field extracts from your image structure. For example, if your image structure's format field contains the value ``14``, then the ``imageFormats`` object should have a key ``"14"`` that maps to the appropriate display format string like ``"rgb888"``.
+
+**Important Notes:**
+- **Automatic Detection**: The Image Viewer automatically detects supported image types and extracts properties
+- **Unified Interface**: Single ``View Variable as Image`` command works for all supported formats
+- **Format Validation**: All formats are validated against supported display formats
+- **Raw Data**: The Image Viewer supports raw pixel formats. Compressed formats (JPEG, PNG, etc.) are not supported
+- **Size Specification**: For manual usage, you must specify the correct size of the image data array
+- **Variable Size**: The size can be provided as a number (bytes) or as the name of another variable containing the size
+- **Pointer Variables**: For pointer variables, make sure to provide the actual data size, not the pointer size
+- **Auto-Dimensioning**: The Image Viewer automatically estimates dimensions based on the data size and selected format, but you can manually adjust them for better results
+- **Extensible**: Custom image formats can be added through configuration files
 
 
 Other extensions debug configuration

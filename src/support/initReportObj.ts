@@ -23,9 +23,6 @@ export function initializeReportObject() {
     systemEnvPath: undefined,
     espIdfPath: undefined,
     espAdfPath: undefined,
-    espMdfPath: undefined,
-    espMatterPath: undefined,
-    espHomeKitPath: undefined,
     flashType: undefined,
     flashPartitionToUse: undefined,
     customExtraPaths: undefined,
@@ -37,7 +34,6 @@ export function initializeReportObject() {
     pythonBinPath: undefined,
     pythonPackages: undefined,
     serialPort: undefined,
-    sysPythonBinPath: undefined,
     openOcdConfigs: undefined,
     openOCDDebugLevel: undefined,
     openOcdLaunchArgs: undefined,
@@ -48,33 +44,22 @@ export function initializeReportObject() {
   report.configurationAccess = {
     espIdfPath: undefined,
     espAdfPath: undefined,
-    espMdfPath: undefined,
-    espMatterPath: undefined,
-    espHomeKitPath: undefined,
     espIdfToolsPaths: undefined,
     pythonBinPath: undefined,
     cmakeInEnv: undefined,
     ninjaInEnv: undefined,
     toolsPath: undefined,
-    sysPythonBinPath: undefined,
   };
   report.configurationSpacesValidation = {
     customExtraPaths: undefined,
     espAdfPath: undefined,
     espIdfPath: undefined,
-    espMatterPath: undefined,
-    espMdfPath: undefined,
-    espHomeKitPath: undefined,
     gitPath: undefined,
     pythonBinPath: undefined,
     toolsPath: undefined,
     systemEnvPath: undefined,
-    sysPythonBinPath: undefined,
   };
-  report.debugAdapterRequirements = {
-    output: undefined,
-    result: undefined,
-  };
+  report.espIdfSetups = [];
   report.espIdfToolsVersions = undefined;
   report.espIdfVersion = {
     output: undefined,

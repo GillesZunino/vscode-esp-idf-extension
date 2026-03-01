@@ -27,6 +27,11 @@ export interface IdfTaskDefinition extends vscode.TaskDefinition {
 export class TaskManager {
   private static tasks: vscode.Task[] = [];
   private static disposables: vscode.Disposable[] = [];
+  private static taskResults: Array<{
+    taskId: string;
+    output?: any;
+    error?: Error;
+  }> = [];
 
   public static addTask(
     taskDefinition: IdfTaskDefinition,
@@ -38,7 +43,16 @@ export class TaskManager {
       | vscode.CustomExecution,
     problemMatchers: string | string[],
     presentationOptions: vscode.TaskPresentationOptions
-  ) {
+  ): void {
+    // Check if a task with the same taskId already exists
+    const existingTaskIndex = TaskManager.tasks.findIndex(
+      (task) => task.definition.taskId === taskDefinition.taskId
+    );
+    if (existingTaskIndex !== -1) {
+      // Task with this taskId already exists, skip adding
+      return;
+    }
+
     const newTask: vscode.Task = new vscode.Task(
       taskDefinition,
       scope,
@@ -49,18 +63,6 @@ export class TaskManager {
     );
     newTask.presentationOptions = presentationOptions;
     TaskManager.tasks.push(newTask);
-    return new Promise<void>((resolve, reject) => {
-      vscode.tasks.onDidEndTask((e) => {
-        if (
-          e.execution &&
-          e.execution.task.definition.taskId.indexOf(
-            newTask.definition.taskId
-          ) !== -1
-        ) {
-          return resolve();
-        }
-      });
-    });
   }
 
   public static disposeListeners() {
@@ -68,12 +70,14 @@ export class TaskManager {
       disposable.dispose();
     }
     TaskManager.disposables = [];
+    TaskManager.tasks = [];
   }
 
   public static cancelTasks() {
     for (const task of TaskManager.tasks) {
       const execution = vscode.tasks.taskExecutions.find((t) => {
-        return t.task.definition.taskId.indexOf(task.definition.taskId) !== -1;
+        // Match the exact taskId we use in our definitions.
+        return t.task.definition.taskId === task.definition.taskId;
       });
       if (execution) {
         execution.terminate();
@@ -91,11 +95,29 @@ export class TaskManager {
       const taskDisposable = vscode.tasks.onDidEndTaskProcess(async (e) => {
         if (
           e.execution &&
-          e.execution.task.definition.taskId.indexOf(
+          e.execution.task.definition.taskId ===
             lastExecution.task.definition.taskId
-          ) !== -1
         ) {
+          const taskResult = {
+            taskId: lastExecution.task.definition.taskId,
+            exitCode: e.exitCode,
+            taskName: lastExecution.task.name,
+          };
+          TaskManager.taskResults.push(taskResult);
+
+          // Remove the completed task from the array (regardless of success or failure)
+          const taskIndex = TaskManager.tasks.findIndex(
+            (task) =>
+              task.definition.taskId === lastExecution.task.definition.taskId
+          );
+          if (taskIndex !== -1) {
+            TaskManager.tasks.splice(taskIndex, 1);
+          }
+
           if (e.exitCode !== 0) {
+            // Task has already ended (this handler is triggered *after* end),
+            // so terminating here is unnecessary and can produce VS Code errors
+            // like "Task to terminate not found".
             this.cancelTasks();
             this.disposeListeners();
             return reject(
@@ -104,9 +126,8 @@ export class TaskManager {
               )
             );
           }
-          e.execution.terminate();
-          TaskManager.tasks.splice(0, 1);
           if (TaskManager.tasks.length === 0) {
+            TaskManager.tasks = [];
             return resolve();
           } else {
             lastExecution = await vscode.tasks.executeTask(
@@ -117,5 +138,22 @@ export class TaskManager {
       });
       TaskManager.disposables.push(taskDisposable);
     });
+  }
+
+  public static getTaskResults() {
+    return TaskManager.taskResults;
+  }
+
+  public static clearTaskResults() {
+    TaskManager.taskResults = [];
+  }
+
+  public static async runTasksWithBoolean() {
+    try {
+      await TaskManager.runTasks();
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 }

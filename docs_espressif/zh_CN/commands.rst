@@ -32,8 +32,12 @@
      - 打开一个带有安装向导的窗口，可以安装 ESP-IDF、IDF 工具和 Python 虚拟环境。
    * - 配置 SDKConfig 文件以启用代码覆盖率
      - 在项目的 SDKConfig 文件中设置必要的值，启用代码覆盖率分析。
+   * - 配置项目以使用 ESP-Clang
+     - 配置当前 ESP-IDF 项目使用 esp-clang 作为工具链，并在 settings.json 中配置 LLVM Clang 扩展。
    * - 创建新 ESP-IDF 组件
      - 在当前目录下，基于 ESP-IDF 组件模板创建新组件。
+   * - 创建新的空项目
+     - 询问新项目名称，选择创建项目的目录，并显示通知以打开新创建的项目。
    * - 清理当前 SDK 配置编辑器服务器进程
      - 若先前执行过 ``SDK 配置编辑器`` 命令，则后台将保留缓存进程，以便下次更快打开编辑器。此命令将清理此类缓存进程。
    * - 诊断命令
@@ -63,21 +67,11 @@
    * - 导入 ESP-IDF 项目
      - 导入现有的 ESP-IDF 项目，在新位置添加 .vscode 和 .devcontainer 文件，同时可以重命名项目。
    * - 安装 ESP-ADF
-     - 在所选目录中克隆 ESP-ADF，并配置 **idf.espAdfPath**（Windows 系统中为 **idf.espAdfPathWin**）。
-   * - 安装 ESP-IDF Python 包（已弃用）
-     - 安装扩展 Python 包。本命令已弃用，即将被移除。
-   * - 安装 ESP-MDF
-     - 在所选目录中克隆 ESP-MDF，并配置 **idf.espMdfPath**（Windows 系统中为 **idf.espMdfPathWin**）。
-   * - 安装 ESP-Matter
-     - 克隆 ESP-Matter 并设置 **idf.espMatterPath**。ESP-Matter 不支持 Windows。
-   * - 安装 ESP-Rainmaker
-     - 克隆 ESP-Rainmaker，并配置 **idf.espRainmakerPath**（Windows 系统中为 **idf.espRainmakerPathWin**）。
-   * - 安装 ESP-HomeKit-SDK
-     - 在所选目录中克隆 ESP-HomeKit-SDK，并配置 **idf.espHomeKitSdkPath**（Windows 系统中为 **idf.espHomeKitSdkPathWin**）。
+     - 在所选目录中克隆 ESP-ADF，并配置 **idf.customExtraVars["ADF_PATH"]**。
    * - 启动 IDF 监视器以支持 Core Dump 模式/GDB Stub 模式
      - 启动支持 WebSocket 的 ESP-IDF 监控器。如果紧急处理程序已经配置为 gdbstub 或核心转储，监控器将启动芯片的事后调试会话。
    * - 启动 QEMU 服务器
-     - 如 :ref:`QEMU 文档 <qemu>` 中所述，此命令将启动终端，通过使用项目的 Dockerfile 和二进制文件来监视 ESP32 QEMU。
+     - 如 :ref:`QEMU 文档 <qemu>` 中所述，此命令将使用项目的 Dockerfile 和当前项目二进制文件执行 ESP32 QEMU。
    * - 启动 QEMU 调试会话
      - 如 :ref:`QEMU 文档 <qemu>` 中所述，此命令将使用项目的 Dockerfile 和二进制文件启动 ESP32 QEMU 的调试会话。
    * - 监控设备
@@ -85,11 +79,13 @@
    * - 监视 QEMU 设备
      - 如 :ref:`QEMU 文档 <qemu>` 中所述，此命令将启动终端，通过使用项目的 Dockerfile 和二进制文件来监视 ESP32 QEMU。
    * - 新建项目
-     - 启动 UI，通过 ESP-IDF 项目创建向导，使用 ESP-IDF 中的示例模板和扩展中配置的其他框架。
+     - 启动 UI，通过 ESP-IDF 项目创建向导，使用 ESP-IDF 和 ESP-ADF 中的示例模板。
    * - NVS 分区编辑器
      - 启动 UI，创建 `ESP-IDF 非易失性存储库 <https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32/api-reference/storage/nvs_flash.html>`_ 的 CSV 文件。
    * - 打开 ESP-IDF 终端
      - 打开一个终端，并激活 IDF_PATH 和 Python 虚拟环境。
+   * - OpenOCD 适配器状态栏
+     - 切换状态栏显示 OpenOCD 适配器序列号（S）和 USB 适配器位置（L），用于在连接多个设备时确认将使用的适配器。
    * - 分区表编辑器
      - 启动 UI，如 `ESP-IDF 分区表 <https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32/api-guides/partition-tables.html>`_ 中所述，管理自定义分区表。
    * - 选择工作区文件夹
@@ -120,10 +116,6 @@
      - 此扩展会在输出窗口 <strong>ESP-IDF</strong> 中显示通知和输出。此命令可设置是否只显示通知、只显示输出、两者都显示或都不显示。
    * - 设置乐鑫设备目标
      - 该命令为当前项目设置目标 (IDF_TARGET)，效果等同于 **idf.py set-target**。例如，若想使用 ESP32 或 ESP32-C3，则需执行此命令。
-   * - 设置 ESP-MATTER 设备路径 (ESP_MATTER_DEVICE_PATH)
-     - **ESP-IDF：设置 ESP-MATTER 设备路径 (ESP_MATTER_DEVICE_PATH)** 命令用于定义 ESP-Matter 的设备路径。Windows 系统不支持 ESP-Matter。
-   * - 展示示例项目
-     - 启动 UI 以显示所选框架的示例，可从中创建新项目。此命令将显示扩展中已配置的框架，如果想查看 ESP-Rainmaker 示例，需要先运行 **安装 ESP-Rainmaker** 命令（或设置相应的 idf.espRainmakerPath），然后执行此命令以查看示例。
    * - 显示 Ninja 构建摘要
      - 运行 Chromium ninja-build-summary.py。
    * - 二进制文件大小分析
@@ -134,5 +126,7 @@
      - 将当前项目的单元测试应用程序烧录到连接的设备上。详情请参阅 :ref:`单元测试 <unit testing>`。
    * - 单元测试：构建并烧录单元测试应用程序
      - 复制当前项目中的单元测试应用程序，构建当前项目并将单元测试应用程序烧录到连接的设备上。详情请参阅 :ref:`单元测试 <unit testing>`。
-   * - 单元测试：安装 ESP-IDF PyTest 依赖项
-     - 安装 ESP-IDF Pytest 依赖项，以便能够执行 ESP-IDF 单元测试。详情请参阅 :ref:`单元测试 <unit testing>`。
+   * - 从 LVGL C 文件加载图像
+     - 从包含 lv_image_dsc_t 结构的 LVGL C 文件中加载并显示图像。此命令允许您在不需要调试会话的情况下查看 LVGL 图像。
+   * - 打开图像查看器
+     - 打开图像查看器面板，用于显示来自调试变量或 LVGL C 文件的图像。此面板提供查看和分析各种格式图像数据的工具。
