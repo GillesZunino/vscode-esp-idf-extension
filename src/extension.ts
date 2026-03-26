@@ -176,6 +176,7 @@ import {
   downloadExtractAndRunEIM,
   runExistingEIM,
 } from "./eim/downloadInstall";
+import { FreeRTOSDebugTracker, registerDebugAdapterTracker } from "./cdtDebugAdapter/adapter/debugTracker/debugTracker";
 
 // Global variables shared by commands
 let workspaceRoot: vscode.Uri;
@@ -1311,6 +1312,9 @@ export async function activate(context: vscode.ExtensionContext) {
       };
     },
   });
+
+  // FreeRTOS view debug tracker
+  context.subscriptions.push(...registerDebugAdapterTracker("gdbtarget", FreeRTOSDebugTracker));
 
   vscode.debug.onDidTerminateDebugSession((session) => {
     peripheralTreeProvider.debugSessionTerminated(session);
