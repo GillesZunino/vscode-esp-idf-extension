@@ -176,6 +176,11 @@ import {
   downloadExtractAndRunEIM,
   runExistingEIM,
 } from "./eim/downloadInstall";
+import {
+  checkAndPromptForClangdExtension,
+  handleCompileCommandsUpdate,
+} from "./clang/checkClangExtension";
+
 import { FreeRTOSDebugTracker, registerDebugAdapterTracker } from "./cdtDebugAdapter/adapter/debugTracker/debugTracker";
 
 // Global variables shared by commands
@@ -262,56 +267,126 @@ export async function activate(context: vscode.ExtensionContext) {
     checkAndPromptForClangdExtension();
   }
 
-  // Check for root CMakeLists.txt and its content before full activation
+  // Validate workspace activation eligibility
+  // See docs_espressif/en/extension-activation.rst for details
   if (PreCheck.isWorkspaceFolderOpen() && vscode.workspace.workspaceFolders) {
-    let hasValidIdfProject = false;
+    const activationModeConfigKey = "idf.extensionActivationMode";
+    try {
+      const normalizeActivationMode = (
+        value: unknown
+      ): "detect" | "always" | "never" => {
+        if (value === "always") {
+          return "always";
+        }
+        if (value === "never") {
+          return "never";
+        }
+        return "detect";
+      };
 
-    for (const workspaceFolder of vscode.workspace.workspaceFolders) {
-      const rootCMakeListsPath = path.join(
-        workspaceFolder.uri.fsPath,
-        "CMakeLists.txt"
+      // 1) Workspace/global setting: always activates; never suppresses (no prompt).
+      const workspaceValue = normalizeActivationMode(
+        idfConf.readParameter(activationModeConfigKey)
       );
-      const rootCMakeListsExists = await pathExists(rootCMakeListsPath);
-
-      if (rootCMakeListsExists) {
-        try {
-          const cmakeContent = await readFile(rootCMakeListsPath, "utf-8");
-          if (
-            cmakeContent.includes(
-              "include($ENV{IDF_PATH}/tools/cmake/project.cmake)"
-            )
-          ) {
-            hasValidIdfProject = true;
-            break; // Found a valid project, activate immediately
-          }
-        } catch (error) {
-          Logger.error(
-            `Error reading root CMakeLists.txt for activation check in ${workspaceFolder.name}.`,
-            error,
-            "extension activate checkCMakeContent"
+      if (workspaceValue === "always") {
+        // Activate immediately; skip folder checks and CMake detection.
+        Logger.info(
+          "Extension activation forced by workspace/global idf.extensionActivationMode=always setting."
+        );
+      } else if (workspaceValue === "never") {
+        Logger.info(
+          "Extension activation suppressed by workspace/global idf.extensionActivationMode=never setting."
+        );
+        return;
+      } else {
+        // 2) Folder settings: any always activates; only ALL folders never suppresses (no prompt).
+        let hasAnyFolderAlways = false;
+        let allFoldersNever = vscode.workspace.workspaceFolders.length > 0;
+        for (const folder of vscode.workspace.workspaceFolders) {
+          const folderValue = normalizeActivationMode(
+            idfConf.readParameter(activationModeConfigKey, folder.uri)
           );
+          if (folderValue === "always") {
+            hasAnyFolderAlways = true;
+            allFoldersNever = false;
+            Logger.info(
+              "Extension activation forced by folder-level idf.extensionActivationMode=always setting."
+            );
+            break;
+          }
+          if (folderValue !== "never") {
+            allFoldersNever = false;
+          }
+        }
+
+        if (!hasAnyFolderAlways) {
+          if (allFoldersNever) {
+            Logger.info(
+              "Extension activation suppressed because all workspace folders set idf.extensionActivationMode=never."
+            );
+            return;
+          }
+
+          // 3) Fallback: CMakeLists.txt detection across folders.
+          let hasCMakeIdfProject = false;
+          for (const workspaceFolder of vscode.workspace.workspaceFolders) {
+            const rootCMakeListsPath = path.join(
+              workspaceFolder.uri.fsPath,
+              "CMakeLists.txt"
+            );
+            const rootCMakeListsExists = await pathExists(rootCMakeListsPath);
+            if (!rootCMakeListsExists) {
+              continue;
+            }
+            try {
+              const cmakeContent = await readFile(rootCMakeListsPath, "utf-8");
+              if (
+                cmakeContent.includes(
+                  "include($ENV{IDF_PATH}/tools/cmake/project.cmake)"
+                )
+              ) {
+                hasCMakeIdfProject = true;
+                Logger.info(
+                  "Extension activated via CMakeLists.txt ESP-IDF project detection."
+                );
+                break;
+              }
+            } catch (error) {
+              Logger.error(
+                `Error reading root CMakeLists.txt for activation check in ${workspaceFolder.name}.`,
+                error,
+                "extension activate checkCMakeContent"
+              );
+            }
+          }
+
+          if (!hasCMakeIdfProject) {
+            // 4) Prompt only when no standard project was detected.
+            const activateAnyway = await vscode.window.showInformationMessage(
+              vscode.l10n.t(
+                "No standard ESP-IDF project was found in this workspace. Do you want to activate the ESP-IDF extension anyway?"
+              ),
+              { modal: false },
+              { title: vscode.l10n.t("Activate Anyway") }
+            );
+            if (
+              !activateAnyway ||
+              activateAnyway.title !== vscode.l10n.t("Activate Anyway")
+            ) {
+              Logger.info("User chose not to activate the ESP-IDF extension.");
+              return; // Exit activation early
+            }
+            Logger.info(
+              "User chose to activate the ESP-IDF extension despite no standard ESP-IDF project was found."
+            );
+          }
         }
       }
-    }
-
-    if (!hasValidIdfProject) {
-      // At least one CMakeLists.txt was found, but none are ESP-IDF projects.
-      const activateAnyway = await vscode.window.showInformationMessage(
-        vscode.l10n.t(
-          "No standard ESP-IDF project was found in this workspace. Do you want to activate the ESP-IDF extension anyway?"
-        ),
-        { modal: false },
-        { title: vscode.l10n.t("Activate Anyway") }
-      );
-      if (
-        !activateAnyway ||
-        activateAnyway.title !== vscode.l10n.t("Activate Anyway")
-      ) {
-        Logger.info("User chose not to activate the ESP-IDF extension.");
-        return; // Exit activation early
-      }
-      Logger.info(
-        "User chose to activate the ESP-IDF extension despite no standard ESP-IDF project was found."
+    } catch (error) {
+      Logger.error(
+        "Error checking idf.extensionActivationMode setting for activation.",
+        error,
+        "extension activate checkExtensionActivationModeSetting"
       );
     }
   }
@@ -395,6 +470,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
     const coverageOptions = getCoverageOptions(workspaceRoot);
     covRenderer = new CoverageRenderer(workspaceRoot, coverageOptions);
+    handleCompileCommandsUpdate(workspaceRoot, context);
   }
   let unitTestController = new UnitTest(context);
   // Add delete or update new sources in CMakeLists.txt of same folder
@@ -503,6 +579,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
             const coverageOptions = getCoverageOptions(workspaceRoot);
             covRenderer = new CoverageRenderer(workspaceRoot, coverageOptions);
+            handleCompileCommandsUpdate(workspaceRoot, context);
             break;
           }
         }
@@ -519,13 +596,8 @@ export async function activate(context: vscode.ExtensionContext) {
           );
           const coverageOptions = getCoverageOptions(workspaceRoot);
           covRenderer = new CoverageRenderer(workspaceRoot, coverageOptions);
+          handleCompileCommandsUpdate(workspaceRoot, context);
         }
-        const buildDirPath = idfConf.readParameter(
-          "idf.buildPath",
-          workspaceRoot
-        ) as string;
-        const projectName = await getProjectName(buildDirPath);
-        const projectElfFile = `${path.join(buildDirPath, projectName)}.elf`;
         const openOCDConfig: IOpenOCDConfig = {
           workspace: workspaceRoot,
         } as IOpenOCDConfig;
@@ -1023,6 +1095,7 @@ export async function activate(context: vscode.ExtensionContext) {
         ConfserverProcess.dispose();
         const coverageOptions = getCoverageOptions(workspaceRoot);
         covRenderer = new CoverageRenderer(workspaceRoot, coverageOptions);
+        handleCompileCommandsUpdate(workspaceRoot, context);
       } catch (error) {
         Logger.errorNotify(
           error.message,
@@ -1231,6 +1304,7 @@ export async function activate(context: vscode.ExtensionContext) {
     } else if (e.affectsConfiguration("idf.buildPath" + winFlag)) {
       updateIdfComponentsTree(workspaceRoot);
       await configureClangSettings(workspaceRoot);
+      handleCompileCommandsUpdate(workspaceRoot, context);
     } else if (e.affectsConfiguration("idf.customExtraVars")) {
       await getIdfTargetFromSdkconfig(workspaceRoot, statusBarItems["target"]);
       await configureClangSettings(workspaceRoot);
@@ -4161,7 +4235,7 @@ const flash = (
           )
         ) {
           OutputChannel.appendLine(
-            "Flash has finished. You can monitor your device with 'ESP-IDF: Monitor command'"
+            "Flash has finished. You can monitor your device with 'ESP-IDF: Monitor Device'"
           );
         }
       }
@@ -4330,79 +4404,6 @@ async function createMonitor() {
     const noReset = await shouldDisableMonitorReset(workspaceRoot);
     await createNewIdfMonitor(workspaceRoot, noReset);
   });
-}
-
-/**
- * Checks if the clangd extension is installed and prompts the user to install it if not.
- * This is specifically for VS Code fork users (like Cursor, VSCodium, etc.) to ensure they have the best C/C++ development experience.
- */
-async function checkAndPromptForClangdExtension() {
-  const clangdExtensionId = "llvm-vs-code-extensions.vscode-clangd";
-  const clangdExtension = vscode.extensions.getExtension(clangdExtensionId);
-
-  if (!clangdExtension) {
-    Logger.info("clangd extension not found - prompting user to install");
-
-    const message = vscode.l10n.t(
-      "For the best C/C++ development experience in this editor, we recommend installing the clangd extension. This provides enhanced IntelliSense, code completion, and error detection."
-    );
-
-    const installAction = await vscode.window.showInformationMessage(
-      message,
-      { modal: false },
-      { title: vscode.l10n.t("Install clangd") },
-      { title: vscode.l10n.t("Not now") }
-    );
-
-    if (
-      installAction &&
-      installAction.title === vscode.l10n.t("Install clangd")
-    ) {
-      try {
-        await vscode.commands.executeCommand(
-          "workbench.extensions.installExtension",
-          clangdExtensionId
-        );
-
-        // Show success message
-        await vscode.window.showInformationMessage(
-          vscode.l10n.t(
-            "clangd extension installed successfully! Please reload the window to activate it."
-          )
-        );
-
-        // Offer to reload the window
-        const reloadAction = await vscode.window.showInformationMessage(
-          vscode.l10n.t(
-            "Would you like to reload the window to activate the clangd extension?"
-          ),
-          { modal: false },
-          { title: vscode.l10n.t("Reload") },
-          { title: vscode.l10n.t("Later") }
-        );
-
-        if (reloadAction && reloadAction.title === vscode.l10n.t("Reload")) {
-          await vscode.commands.executeCommand("workbench.action.reloadWindow");
-        }
-      } catch (error) {
-        Logger.error(
-          "Failed to install clangd extension",
-          error,
-          "checkAndPromptForClangdExtension"
-        );
-
-        await vscode.window.showErrorMessage(
-          vscode.l10n.t(
-            "Failed to install clangd extension. You can install it manually from the Extensions marketplace."
-          )
-        );
-      }
-    } else {
-      Logger.info("User chose not to install clangd extension");
-    }
-  } else {
-    Logger.info("clangd extension is already installed");
-  }
 }
 
 export function deactivate() {
