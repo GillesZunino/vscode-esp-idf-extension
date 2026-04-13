@@ -36,7 +36,7 @@ import * as vscode from "vscode";
 import { IdfComponent } from "./idfComponent";
 import * as idfConf from "./idfConfiguration";
 import { Logger } from "./logger/logger";
-import { getIdfTargetFromSdkconfig, getProjectName } from "./workspaceConfig";
+import { getSDKConfigFilePath } from "./workspaceConfig";
 import { OutputChannel } from "./logger/outputChannel";
 import { ESP } from "./config";
 import * as sanitizedHtml from "sanitize-html";
@@ -241,7 +241,11 @@ export function spawn(
   });
 }
 
-export function canAccessFile(filePath: string, mode?: number): boolean {
+export function canAccessFile(
+  filePath: string,
+  mode?: number,
+  expectedValue?: string
+): boolean {
   try {
     // tslint:disable-next-line: no-bitwise
     mode = mode || fs.constants.R_OK | fs.constants.W_OK | fs.constants.X_OK;
@@ -249,7 +253,7 @@ export function canAccessFile(filePath: string, mode?: number): boolean {
     return true;
   } catch (error) {
     Logger.error(
-      `Cannot access filePath: ${filePath}`,
+      `Cannot access filePath: ${filePath} with mode: ${mode} and expectedValue: ${expectedValue}`,
       error,
       "src utils canAccessFile",
       undefined,
@@ -460,49 +464,6 @@ export function getVariableFromCMakeLists(workspacePath: string, key: string) {
   const regexExp = new RegExp(`(?:set|SET)\\(${key} (.*)\\)`);
   const match = cmakeListsContent.match(regexExp);
   return match ? match[1] : "";
-}
-
-export async function getSDKConfigFilePath(workspacePath: vscode.Uri) {
-  let sdkconfigFilePath = "";
-  try {
-    sdkconfigFilePath = getVariableFromCMakeLists(
-      workspacePath.fsPath,
-      "SDKCONFIG"
-    );
-  } catch (error) {
-    const errMsg = error.message
-      ? error.message
-      : `CMakeLists.txt file doesn't exists or can't be read`;
-    Logger.info(errMsg, error);
-  }
-  if (
-    sdkconfigFilePath &&
-    sdkconfigFilePath.indexOf("${CMAKE_BINARY_DIR}") !== -1
-  ) {
-    const buildDirPath = idfConf.readParameter(
-      "idf.buildPath",
-      workspacePath
-    ) as string;
-    sdkconfigFilePath = sdkconfigFilePath
-      .replace("${CMAKE_BINARY_DIR}", buildDirPath)
-      .replace(/"/g, "");
-  }
-  if (!sdkconfigFilePath) {
-    sdkconfigFilePath = idfConf.readParameter(
-      "idf.sdkconfigFilePath",
-      workspacePath
-    ) as string;
-  }
-  if (!workspacePath) {
-    return;
-  }
-  if (!sdkconfigFilePath) {
-    sdkconfigFilePath = path.join(workspacePath.fsPath, "sdkconfig");
-  }
-  if (!sdkconfigFilePath) {
-    sdkconfigFilePath = path.join(workspacePath.fsPath, "sdkconfig.defaults");
-  }
-  return sdkconfigFilePath;
 }
 
 export async function getConfigValueFromSDKConfig(
@@ -742,38 +703,6 @@ export function isStringNotEmpty(str: string) {
 
 export function checkSpacesInPath(pathStr: string) {
   return /\s+/g.test(pathStr);
-}
-
-export async function getElfFilePath(
-  workspaceURI: vscode.Uri
-): Promise<string> {
-  let projectName = "";
-  if (!workspaceURI) {
-    throw new Error("No Workspace open");
-  }
-
-  try {
-    const buildDir = idfConf.readParameter(
-      "idf.buildPath",
-      workspaceURI
-    ) as string;
-    if (!canAccessFile(buildDir, fs.constants.R_OK)) {
-      throw new Error("Build is required once to generate the ELF File");
-    }
-    projectName = await getProjectName(buildDir);
-    const elfFilePath = path.join(buildDir, `${projectName}.elf`);
-    if (!canAccessFile(elfFilePath, fs.constants.R_OK)) {
-      throw new Error(`Failed to access .elf file at ${elfFilePath}`);
-    }
-    return elfFilePath;
-  } catch (error) {
-    Logger.errorNotify(
-      "Failed to read project name while fetching elf file",
-      error,
-      "utils getElfFilePath"
-    );
-    return;
-  }
 }
 
 export function checkIsProjectCmakeLists(dir: string) {
@@ -1049,11 +978,18 @@ export async function getAllBinPathInEnvPath(
   return foundBinaries;
 }
 
+/**
+ * Find the binary in the PATH environment variable and return its absolute path. If containerDir is provided, it will check if the binary path contains the containerDir path and return it only if it's true.
+ * @param {string} binaryName - The name of the binary to find in the PATH environment variable.
+ * @param {NodeJS.ProcessEnv} env - The environment variables to use for the search.
+ * @param {string[]} [containerDir] - Optional array of directory paths to check if the binary path contains any of them.
+ * @returns {Promise<string>} The absolute path of the binary if found, otherwise an empty string.
+ */
 export async function isBinInPath(
   binaryName: string,
   env: NodeJS.ProcessEnv,
   containerDir?: string[]
-) {
+): Promise<string> {
   let pathNameInEnv: string = Object.keys(process.env).find(
     (k) => k.toUpperCase() == "PATH"
   );
@@ -1068,7 +1004,7 @@ export async function isBinInPath(
       if (containerDir && containerDir.length) {
         const resultContainerPath = containerDir.join(path.sep);
         if (binaryPath.indexOf(resultContainerPath) === -1) {
-          return "";
+          continue;
         }
       }
       const pathStats = await stat(binaryPath);
