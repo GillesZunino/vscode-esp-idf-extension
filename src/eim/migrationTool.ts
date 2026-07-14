@@ -81,13 +81,20 @@ export async function getPythonEnvPath(
     idfToolsDir,
     pythonBin
   );
-  const pyDir =
-    process.platform === "win32"
-      ? ["Scripts", "python.exe"]
-      : ["bin", "python"];
-  const fullIdfPyEnvPath = join(idfPyEnvPath, ...pyDir);
-  const pyEnvPathExists = await pathExists(fullIdfPyEnvPath);
-  return pyEnvPathExists ? fullIdfPyEnvPath : "";
+  if (process.platform === "win32") {
+    const winPythonPath = join(idfPyEnvPath, "Scripts", "python.exe");
+    return (await pathExists(winPythonPath)) ? winPythonPath : "";
+  }
+  // Prefer 'python' to stay consistent with the EIM activation script, which
+  // hardcodes /venv/bin/python in its idf.py shell function. idf.py records
+  // sys.executable in CMakeCache at configure time, so using a different name
+  // on re-runs causes a "python/python3 mismatch" error.
+  const pythonPath = join(idfPyEnvPath, "bin", "python");
+  if (await pathExists(pythonPath)) {
+    return pythonPath;
+  }
+  const python3Path = join(idfPyEnvPath, "bin", "python3");
+  return (await pathExists(python3Path)) ? python3Path : "";
 }
 
 export async function getEnvVariablesFromIdfSetup(idfSetup: IdfSetup) {
